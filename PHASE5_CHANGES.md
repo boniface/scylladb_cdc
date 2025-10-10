@@ -247,7 +247,7 @@ CoordinatorActor (Supervisor)
 ├── HealthCheckActor      (monitors system health)
 ├── DlqActor             (handles failed messages) ← NEW
 ├── OrderActor           (processes commands)
-└── CdcStreamProcessor   (consumes CDC events)
+└── CdcProcessor   (consumes CDC events)
     ├── Retry Logic      ← NEW
     └── DLQ Integration  ← NEW
 ```
@@ -278,7 +278,7 @@ CoordinatorActor (Supervisor)
          │
          ▼
 ┌─────────────────────────────────┐
-│  CdcStreamProcessor             │
+│  CdcProcessor             │
 │  1. Consume CDC row             │
 │  2. Extract event data          │
 │  3. Publish with retry ← NEW    │

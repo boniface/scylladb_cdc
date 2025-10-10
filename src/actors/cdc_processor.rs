@@ -227,16 +227,16 @@ impl ConsumerFactory for OutboxConsumerFactory {
 }
 
 // ============================================================================
-// CDC Stream Processor Actor
+// CDC Processor Actor
 // ============================================================================
 
-pub struct CdcStreamProcessor {
+pub struct CdcProcessor {
     session: Arc<Session>,
     redpanda: Arc<RedpandaClient>,
     dlq_actor: Option<Addr<DlqActor>>,
 }
 
-impl CdcStreamProcessor {
+impl CdcProcessor {
     pub fn new(session: Arc<Session>, redpanda: Arc<RedpandaClient>, dlq_actor: Option<Addr<DlqActor>>) -> Self {
         Self { session, redpanda, dlq_actor }
     }
@@ -279,17 +279,17 @@ impl CdcStreamProcessor {
     }
 }
 
-impl Actor for CdcStreamProcessor {
+impl Actor for CdcProcessor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        tracing::info!("CdcStreamProcessor actor started");
+        tracing::info!("CdcProcessor actor started");
         let session = self.session.clone();
         let redpanda = self.redpanda.clone();
         let dlq_actor = self.dlq_actor.clone();
 
         ctx.spawn(async move {
-            let processor = CdcStreamProcessor::new(session, redpanda, dlq_actor);
+            let processor = CdcProcessor::new(session, redpanda, dlq_actor);
             if let Err(e) = processor.start_cdc_streaming().await {
                 tracing::error!("Failed to start CDC streaming: {}", e);
             }

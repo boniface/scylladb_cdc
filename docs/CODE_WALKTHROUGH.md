@@ -176,7 +176,7 @@ impl Handler<CreateOrder> for OrderActor {
 
 ## CDC Stream Processor: Event Consumption
 
-**File**: `src/actors/cdc_stream_processor.rs`
+**File**: `src/actors/cdc_processor.rs`
 
 ### The Consumer Implementation
 
@@ -882,7 +882,7 @@ pub struct CoordinatorActor {
     session: Arc<Session>,
     redpanda: Arc<RedpandaClient>,
     order_actor: Option<Addr<OrderActor>>,
-    cdc_processor: Option<Addr<CdcStreamProcessor>>,
+    cdc_processor: Option<Addr<CdcProcessor>>,
     health_check: Option<Addr<HealthCheckActor>>,
     dlq_actor: Option<Addr<DlqActor>>,
 }
@@ -894,7 +894,7 @@ CoordinatorActor (root supervisor)
 ├── HealthCheckActor
 ├── DlqActor
 ├── OrderActor
-└── CdcStreamProcessor
+└── CdcProcessor
 ```
 
 **Option wrappers:**
@@ -945,7 +945,7 @@ fn start_child_actors(&mut self, ctx: &mut Context<Self>) {
     });
 
     // 4. Start CDC stream processor (consumes events)
-    let cdc_processor = CdcStreamProcessor::new(
+    let cdc_processor = CdcProcessor::new(
         self.session.clone(),
         self.redpanda.clone(),
         Some(dlq_actor.clone()),  // Pass DLQ address

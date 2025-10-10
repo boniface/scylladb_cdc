@@ -228,7 +228,7 @@ ScyllaDB automatically:
 
 ### Step 2: Explore the CDC Consumer
 
-Open `src/actors/cdc_stream_processor.rs` and find the `OutboxCDCConsumer`:
+Open `src/actors/cdc_processor.rs` and find the `OutboxCDCConsumer`:
 
 ```rust
 #[async_trait]
@@ -412,7 +412,7 @@ Attempt 5: After 500ms
 **Exercise 5**: Modify the retry config to be more conservative:
 
 ```rust
-// In src/actors/cdc_stream_processor.rs
+// In src/actors/cdc_processor.rs
 retry_config: RetryConfig::conservative(), // Instead of aggressive()
 ```
 

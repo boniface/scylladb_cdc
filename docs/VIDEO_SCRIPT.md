@@ -193,9 +193,9 @@ docker-compose logs -f app | grep -E "(CDC|Publishing)"
 
 ### CDC Streaming (4 minutes)
 
-> "Now let's see how CDC streaming works. Open `src/actors/cdc_stream_processor.rs`:"
+> "Now let's see how CDC streaming works. Open `src/actors/cdc_processor.rs`:"
 
-**Screen**: Code editor, cdc_stream_processor.rs
+**Screen**: Code editor, cdc_processor.rs
 
 > "We implement the `Consumer` trait from scylla-cdc. This trait has one method: `consume_cdc()`. It's called for every change captured by CDC."
 

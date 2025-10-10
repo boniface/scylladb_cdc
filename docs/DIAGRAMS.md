@@ -540,7 +540,7 @@ Backoff Sequence: 0ms, 100ms, 200ms, 400ms, 500ms
                                                 │ CDC stream
                                                 ▼
                     ┌────────────────────────────────────────┐
-                    │    CdcStreamProcessor                  │
+                    │    CdcProcessor                  │
                     │                                        │
                     │  • Consumes CDC events                 │
                     │  • Retries with backoff                │
@@ -569,14 +569,14 @@ CoordinatorActor     N/A (root)          System shutdown
 HealthCheckActor     Resume              Log error, continue
 DlqActor             Resume              Log error, continue
 OrderActor           Restart             Recreate actor
-CdcStreamProcessor   Restart             Recreate consumer
+CdcProcessor   Restart             Recreate consumer
 
 Message Flow:
 ═══════════════════════════════════════════════════════════
 1. User → OrderActor (CreateOrder message)
 2. OrderActor → ScyllaDB (batched write)
-3. ScyllaDB → CdcStreamProcessor (CDC stream)
-4. CdcStreamProcessor → RedpandaClient (publish)
+3. ScyllaDB → CdcProcessor (CDC stream)
+4. CdcProcessor → RedpandaClient (publish)
 5. On failure → DlqActor (store failed message)
 6. HealthCheckActor → All actors (periodic health checks)
 ```
@@ -992,7 +992,7 @@ Timeline:
 T0: Consumer processing events normally
 T1: OOM/panic, consumer crashes ☠️
 T2: Actix supervisor detects failure
-T3: Supervisor restarts CdcStreamProcessor ♻️
+T3: Supervisor restarts CdcProcessor ♻️
 T4: CDC library resumes from last checkpoint ✅
 T5: Events re-processed (idempotency handles duplicates) ✅
 

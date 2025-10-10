@@ -53,7 +53,7 @@ Supervises all child actors with proper lifecycle management:
 // Actor Hierarchy
 CoordinatorActor (Supervisor)
 ├── OrderActor
-├── CdcStreamProcessor
+├── CdcProcessor
 └── HealthCheckActor
 ```
 
@@ -99,7 +99,7 @@ pub enum HealthStatus {
 ```rust
 // main.rs - Direct actor initialization
 let order_actor = OrderActor::new(session).start();
-let cdc_processor = CdcStreamProcessor::new(session, redpanda).start();
+let cdc_processor = CdcProcessor::new(session, redpanda).start();
 
 // No supervision, no coordination
 ```
@@ -275,7 +275,7 @@ println!("System status: {:?}", health.overall_status);
 🎯 CoordinatorActor started - Phase 4: Actor Supervision
 Starting supervised child actors
 OrderActor started
-CdcStreamProcessor started
+CdcProcessor started
 HealthCheckActor started
 ✅ All supervised actors started successfully
 ```
@@ -297,7 +297,7 @@ Circuit breaker closing after 3 successes
 ```
 🛑 CoordinatorActor stopping - initiating graceful shutdown
 OrderActor received stop signal
-CdcStreamProcessor received stop signal
+CdcProcessor received stop signal
 HealthCheckActor received stop signal
 🛑 CoordinatorActor stopped
 ```

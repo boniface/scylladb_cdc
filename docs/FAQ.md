@@ -106,7 +106,7 @@ T4: Re-process events #99-#100 (idempotent)
    - Works with any database
    - Higher latency
 
-2. **`cdc_stream_processor.rs`** (Phase 3): Shows the production approach
+2. **`cdc_processor.rs`** (Phase 3): Shows the production approach
    - Real-time streaming
    - Lower latency
    - Better performance

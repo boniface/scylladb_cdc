@@ -2,14 +2,14 @@ use actix::prelude::*;
 use scylla::client::session::Session;
 use std::sync::Arc;
 use crate::messaging::RedpandaClient;
-use super::{OrderActor, CdcStreamProcessor, DlqActor, health_check::{HealthCheckActor, HealthStatus, UpdateHealth, GetSystemHealth}};
+use super::{CdcProcessor, DlqActor, health_check::{HealthCheckActor, HealthStatus, UpdateHealth, GetSystemHealth}};
 
 // ============================================================================
 // Coordinator Actor - Orchestrates all system actors
 // ============================================================================
 //
 // Responsibilities:
-// - Manages lifecycle of child actors (OrderActor, CdcStreamProcessor)
+// - Manages lifecycle of child actors (CdcProcessor, DlqActor, HealthCheck)
 // - Implements supervision strategy
 // - Coordinates graceful shutdown
 // - Reports system health
@@ -17,8 +17,7 @@ use super::{OrderActor, CdcStreamProcessor, DlqActor, health_check::{HealthCheck
 //
 // Actor Hierarchy:
 //   CoordinatorActor (Supervisor)
-//   ├── OrderActor
-//   ├── CdcStreamProcessor
+//   ├── CdcProcessor
 //   ├── DlqActor
 //   └── HealthCheckActor
 //
@@ -27,8 +26,7 @@ use super::{OrderActor, CdcStreamProcessor, DlqActor, health_check::{HealthCheck
 pub struct CoordinatorActor {
     session: Arc<Session>,
     redpanda: Arc<RedpandaClient>,
-    order_actor: Option<Addr<OrderActor>>,
-    cdc_processor: Option<Addr<CdcStreamProcessor>>,
+    cdc_processor: Option<Addr<CdcProcessor>>,
     health_check: Option<Addr<HealthCheckActor>>,
     dlq_actor: Option<Addr<DlqActor>>,
 }
@@ -38,14 +36,13 @@ impl CoordinatorActor {
         Self {
             session,
             redpanda,
-            order_actor: None,
             cdc_processor: None,
             health_check: None,
             dlq_actor: None,
         }
     }
 
-    fn start_child_actors(&mut self, ctx: &mut Context<Self>) {
+    fn start_child_actors(&mut self, _ctx: &mut Context<Self>) {
         tracing::info!("Starting supervised child actors");
 
         // Start health check actor
@@ -63,19 +60,8 @@ impl CoordinatorActor {
             details: Some("DLQ actor started".to_string()),
         });
 
-        // Start order actor
-        let order_actor = OrderActor::new(self.session.clone()).start();
-        self.order_actor = Some(order_actor.clone());
-
-        // Report order actor health
-        health_check.do_send(UpdateHealth {
-            component: "order_actor".to_string(),
-            status: HealthStatus::Healthy,
-            details: Some("Order actor started".to_string()),
-        });
-
         // Start CDC stream processor with DLQ support
-        let cdc_processor = CdcStreamProcessor::new(
+        let cdc_processor = CdcProcessor::new(
             self.session.clone(),
             self.redpanda.clone(),
             Some(dlq_actor.clone()),
@@ -97,7 +83,7 @@ impl Actor for CoordinatorActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        tracing::info!("🎯 CoordinatorActor started - Phase 4: Actor Supervision");
+        tracing::info!("🎯 CoordinatorActor started - Event Sourcing with CDC");
         self.start_child_actors(ctx);
 
         // Schedule periodic health checks
@@ -156,10 +142,6 @@ impl Handler<Shutdown> for CoordinatorActor {
         tracing::info!("Received shutdown signal");
 
         // Stop child actors gracefully
-        if let Some(ref order_actor) = self.order_actor {
-            order_actor.do_send(StopActor);
-        }
-
         if let Some(ref cdc_processor) = self.cdc_processor {
             cdc_processor.do_send(StopActor);
         }
@@ -184,20 +166,11 @@ impl Handler<Shutdown> for CoordinatorActor {
 #[rtype(result = "()")]
 struct StopActor;
 
-impl Handler<StopActor> for OrderActor {
+impl Handler<StopActor> for CdcProcessor {
     type Result = ();
 
     fn handle(&mut self, _: StopActor, ctx: &mut Self::Context) {
-        tracing::info!("OrderActor received stop signal");
-        ctx.stop();
-    }
-}
-
-impl Handler<StopActor> for CdcStreamProcessor {
-    type Result = ();
-
-    fn handle(&mut self, _: StopActor, ctx: &mut Self::Context) {
-        tracing::info!("CdcStreamProcessor received stop signal");
+        tracing::info!("CdcProcessor received stop signal");
         ctx.stop();
     }
 }
@@ -217,33 +190,5 @@ impl Handler<StopActor> for DlqActor {
     fn handle(&mut self, _: StopActor, ctx: &mut Self::Context) {
         tracing::info!("DlqActor received stop signal");
         ctx.stop();
-    }
-}
-
-// ============================================================================
-// Public API for accessing child actors
-// ============================================================================
-
-#[derive(Message)]
-#[rtype(result = "Option<Addr<OrderActor>>")]
-pub struct GetOrderActor;
-
-impl Handler<GetOrderActor> for CoordinatorActor {
-    type Result = Option<Addr<OrderActor>>;
-
-    fn handle(&mut self, _: GetOrderActor, _: &mut Self::Context) -> Self::Result {
-        self.order_actor.clone()
-    }
-}
-
-#[derive(Message)]
-#[rtype(result = "Option<Addr<HealthCheckActor>>")]
-pub struct GetHealthCheckActor;
-
-impl Handler<GetHealthCheckActor> for CoordinatorActor {
-    type Result = Option<Addr<HealthCheckActor>>;
-
-    fn handle(&mut self, _: GetHealthCheckActor, _: &mut Self::Context) -> Self::Result {
-        self.health_check.clone()
     }
 }
