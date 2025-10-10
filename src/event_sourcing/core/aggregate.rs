@@ -44,24 +44,9 @@ pub trait Aggregate: Sized + Send + Sync {
     fn version(&self) -> i64;
 
     /// Load aggregate from event history (reconstruct from events)
+    /// This method must be implemented by each aggregate to properly set version from events
     fn load_from_events(events: Vec<EventEnvelope<Self::Event>>) -> Result<Self>
     where
-        Self::Error: std::fmt::Display,
-    {
-        if events.is_empty() {
-            anyhow::bail!("No events to load");
-        }
+        Self::Error: std::fmt::Display;
 
-        // Apply first event to create aggregate
-        let mut aggregate = Self::apply_first_event(&events[0].event_data)
-            .map_err(|e| anyhow::anyhow!("Failed to apply first event: {}", e))?;
-
-        // Apply remaining events
-        for envelope in events.iter().skip(1) {
-            aggregate.apply_event(&envelope.event_data)
-                .map_err(|e| anyhow::anyhow!("Failed to apply event: {}", e))?;
-        }
-
-        Ok(aggregate)
-    }
 }

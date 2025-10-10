@@ -34,24 +34,30 @@ impl OrderCommandHandler {
         correlation_id: Uuid,
     ) -> Result<i64> {
         // Load current aggregate state
-        let aggregate = if self.event_store.aggregate_exists(aggregate_id).await? {
-            self.event_store.load_aggregate::<OrderAggregate>(aggregate_id).await?
+        let exists = self.event_store.aggregate_exists(aggregate_id).await?;
+        tracing::debug!("Aggregate {} exists: {}", aggregate_id, exists);
+
+        let (aggregate, expected_version) = if exists {
+            let agg = self.event_store.load_aggregate::<OrderAggregate>(aggregate_id).await?;
+            let ver = agg.version();
+            tracing::debug!("Loaded aggregate {} with version: {}", aggregate_id, ver);
+            (agg, ver)
         } else {
             // For CreateOrder, we don't have existing aggregate
             match &command {
                 OrderCommand::CreateOrder { .. } => {
-                    // Create a dummy aggregate to validate the command
+                    // Create a dummy aggregate just for validation
                     let event = OrderEvent::Created(super::events::OrderCreated {
                         customer_id: Uuid::new_v4(),
                         items: vec![],
                     });
-                    OrderAggregate::apply_first_event(&event)?
+                    let agg = OrderAggregate::apply_first_event(&event)?;
+                    tracing::debug!("Creating new aggregate {} with expected_version: 0", aggregate_id);
+                    (agg, 0) // Expected version is 0 for new aggregates
                 }
                 _ => bail!("Aggregate does not exist: {}", aggregate_id),
             }
         };
-
-        let expected_version = aggregate.version();
 
         // Handle command to get events
         let domain_events = aggregate.handle_command(&command)

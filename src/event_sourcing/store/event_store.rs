@@ -173,6 +173,8 @@ impl<E: DomainEvent> EventStore<E> {
         for row in rows_result.rows::<(Uuid, i64, Uuid, String, i32, String, Option<Uuid>, Uuid, chrono::DateTime<Utc>)>()? {
             let (agg_id, sequence_number, event_id, event_type, event_version, event_data_json, causation_id, correlation_id, timestamp) = row?;
 
+            tracing::debug!("Loaded event for aggregate {}: seq={}, type={}", agg_id, sequence_number, event_type);
+
             // Parse event data based on type
             let event_data: E = serde_json::from_str(&event_data_json)?;
 
@@ -193,6 +195,7 @@ impl<E: DomainEvent> EventStore<E> {
             events.push(envelope);
         }
 
+        tracing::debug!("Loaded {} events for aggregate {}", events.len(), aggregate_id);
         Ok(events)
     }
 

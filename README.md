@@ -277,10 +277,19 @@ Tests cover:
 
 ## 📚 Documentation
 
-- `EVENT_SOURCING_GUIDE.md` - Complete Event Sourcing guide
-- `CDC_PROJECTIONS_ARCHITECTURE.md` - CDC patterns explained
-- `DIRECT_CDC_VERIFICATION.md` - Architecture verification
-- `src/db/schema.cql` - Database schema with comments
+Comprehensive documentation is available in the [`docs/`](./docs/) folder:
+
+- **[Quick Start Guide](./docs/QUICKSTART.md)** - Get up and running in 5 minutes
+- **[Event Sourcing Guide](./docs/EVENT_SOURCING_GUIDE.md)** - Core concepts and patterns
+- **[Architecture](./docs/ARCHITECTURE.md)** - System design and CDC implementation
+- **[Architecture (AsciiDoc)](./docs/ARCHITECTURE.adoc)** - System design with C4 diagrams (PlantUML)
+- **[Code Walkthrough](./docs/CODE_WALKTHROUGH.md)** - Detailed code structure
+- **[Diagrams](./docs/DIAGRAMS.md)** - Visual architecture diagrams
+- **[FAQ](./docs/FAQ.md)** - Frequently asked questions
+- **[Test Audit](./docs/TEST_AUDIT.md)** - Test coverage status and roadmap
+- **[Contributing](./docs/CONTRIBUTING.md)** - Contribution guidelines
+
+Additional reference: [`src/db/schema.cql`](./src/db/schema.cql) - Annotated database schema
 
 ## 🔧 Configuration
 

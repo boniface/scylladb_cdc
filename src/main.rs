@@ -18,6 +18,10 @@ use messaging::RedpandaClient;
 // Use new domain-layered structure
 use event_sourcing::store::EventStore;
 use domain::order::{OrderCommandHandler, OrderCommand, OrderItem, OrderEvent};
+use domain::customer::{
+    CustomerCommandHandler, CustomerCommand, CustomerEvent,
+    Email, PhoneNumber, Address, CustomerTier,
+};
 
 #[actix::main]
 async fn main() -> anyhow::Result<()> {
@@ -173,17 +177,100 @@ async fn main() -> anyhow::Result<()> {
 
     // Keep app alive for CDC processing
     tracing::info!("⏳ Waiting for CDC processor to publish events...");
-    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+    // === 7. Customer Event Sourcing Demo ===
+    tracing::info!("");
+    tracing::info!("════════════════════════════════════════════════════════════");
+    tracing::info!("👤 Customer Event Sourcing Demo");
+    tracing::info!("════════════════════════════════════════════════════════════");
+    tracing::info!("");
+
+    // Create Customer event store
+    let customer_event_store = Arc::new(EventStore::<CustomerEvent>::new(
+        session.clone(),
+        "Customer",
+        "customer-events"
+    ));
+
+    let customer_command_handler = Arc::new(CustomerCommandHandler::new(customer_event_store.clone()));
+
+    let customer_id = uuid::Uuid::new_v4();
+    let customer_correlation_id = uuid::Uuid::new_v4();
+
+    // Register Customer
+    tracing::info!("1️⃣  Registering customer...");
+    let version = customer_command_handler.handle(
+        customer_id,
+        CustomerCommand::RegisterCustomer {
+            customer_id,
+            email: Email::new("john.doe@example.com"),
+            first_name: "John".to_string(),
+            last_name: "Doe".to_string(),
+            phone: Some(PhoneNumber::new("+1-555-0123")),
+        },
+        customer_correlation_id,
+    ).await?;
+
+    tracing::info!("   ✅ Customer registered: {} (version: {})", customer_id, version);
+    tracing::info!("");
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    // Add Address
+    tracing::info!("2️⃣  Adding customer address...");
+    let address_id = uuid::Uuid::new_v4();
+    let version = customer_command_handler.handle(
+        customer_id,
+        CustomerCommand::AddAddress {
+            address_id,
+            address: Address {
+                street: "123 Main St".to_string(),
+                city: "Springfield".to_string(),
+                state: "IL".to_string(),
+                postal_code: "62701".to_string(),
+                country: "USA".to_string(),
+            },
+            set_as_default: true,
+        },
+        customer_correlation_id,
+    ).await?;
+
+    tracing::info!("   ✅ Address added (version: {})", version);
+    tracing::info!("");
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    // Upgrade Tier
+    tracing::info!("3️⃣  Upgrading customer tier...");
+    let version = customer_command_handler.handle(
+        customer_id,
+        CustomerCommand::UpgradeTier {
+            new_tier: CustomerTier::Gold,
+        },
+        customer_correlation_id,
+    ).await?;
+
+    tracing::info!("   ✅ Customer upgraded to Gold tier (version: {})", version);
+    tracing::info!("");
+
+    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 
     tracing::info!("");
     tracing::info!("════════════════════════════════════════════════════════════");
     tracing::info!("🎉 Event Sourcing Demo Complete!");
     tracing::info!("════════════════════════════════════════════════════════════");
     tracing::info!("");
-    tracing::info!("Event Sourcing Features Demonstrated:");
-    tracing::info!("  ✅ Command Handler with business logic");
-    tracing::info!("  ✅ Domain events (Created, Confirmed, Shipped, Delivered)");
-    tracing::info!("  ✅ Event Store as source of truth");
+    tracing::info!("Aggregates Demonstrated:");
+    tracing::info!("  📦 Order Aggregate:");
+    tracing::info!("     - Created, Confirmed, Shipped, Delivered");
+    tracing::info!("  👤 Customer Aggregate:");
+    tracing::info!("     - Registered, Address Added, Tier Upgraded");
+    tracing::info!("");
+    tracing::info!("Event Sourcing Features:");
+    tracing::info!("  ✅ Multiple domain aggregates (Order, Customer)");
+    tracing::info!("  ✅ Generic event store infrastructure");
+    tracing::info!("  ✅ Command handlers with business logic");
     tracing::info!("  ✅ Optimistic concurrency control (versioning)");
     tracing::info!("  ✅ Atomic write to event_store + outbox_messages");
     tracing::info!("  ✅ CDC streaming to Redpanda");

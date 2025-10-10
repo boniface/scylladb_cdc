@@ -2,7 +2,8 @@ use actix::prelude::*;
 use scylla::client::session::Session;
 use std::sync::Arc;
 use crate::messaging::RedpandaClient;
-use super::{CdcProcessor, DlqActor, health_check::{HealthCheckActor, HealthStatus, UpdateHealth, GetSystemHealth}};
+use crate::actors::core::HealthStatus;
+use super::{CdcProcessor, DlqActor, HealthMonitorActor, UpdateHealth, GetSystemHealth};
 
 // ============================================================================
 // Coordinator Actor - Orchestrates all system actors
@@ -27,7 +28,7 @@ pub struct CoordinatorActor {
     session: Arc<Session>,
     redpanda: Arc<RedpandaClient>,
     cdc_processor: Option<Addr<CdcProcessor>>,
-    health_check: Option<Addr<HealthCheckActor>>,
+    health_monitor: Option<Addr<HealthMonitorActor>>,
     dlq_actor: Option<Addr<DlqActor>>,
 }
 
@@ -37,7 +38,7 @@ impl CoordinatorActor {
             session,
             redpanda,
             cdc_processor: None,
-            health_check: None,
+            health_monitor: None,
             dlq_actor: None,
         }
     }
@@ -45,16 +46,16 @@ impl CoordinatorActor {
     fn start_child_actors(&mut self, _ctx: &mut Context<Self>) {
         tracing::info!("Starting supervised child actors");
 
-        // Start health check actor
-        let health_check = HealthCheckActor::new(self.redpanda.clone()).start();
-        self.health_check = Some(health_check.clone());
+        // Start health monitor actor
+        let health_monitor = HealthMonitorActor::new(self.redpanda.clone()).start();
+        self.health_monitor = Some(health_monitor.clone());
 
         // Start DLQ actor
         let dlq_actor = DlqActor::new(self.session.clone()).start();
         self.dlq_actor = Some(dlq_actor.clone());
 
         // Report DLQ actor health
-        health_check.do_send(UpdateHealth {
+        health_monitor.do_send(UpdateHealth {
             component: "dlq_actor".to_string(),
             status: HealthStatus::Healthy,
             details: Some("DLQ actor started".to_string()),
@@ -69,7 +70,7 @@ impl CoordinatorActor {
         self.cdc_processor = Some(cdc_processor.clone());
 
         // Report CDC processor health
-        health_check.do_send(UpdateHealth {
+        health_monitor.do_send(UpdateHealth {
             component: "cdc_processor".to_string(),
             status: HealthStatus::Healthy,
             details: Some("CDC processor started".to_string()),
@@ -90,10 +91,10 @@ impl Actor for CoordinatorActor {
         ctx.run_interval(
             std::time::Duration::from_secs(30),
             |act, _ctx| {
-                if let Some(ref health_check) = act.health_check {
-                    let health_check = health_check.clone();
+                if let Some(ref health_monitor) = act.health_monitor {
+                    let health_monitor = health_monitor.clone();
                     actix::spawn(async move {
-                        match health_check.send(GetSystemHealth).await {
+                        match health_monitor.send(GetSystemHealth).await {
                             Ok(health) => {
                                 match health.overall_status {
                                     HealthStatus::Healthy => {
@@ -150,8 +151,8 @@ impl Handler<Shutdown> for CoordinatorActor {
             dlq_actor.do_send(StopActor);
         }
 
-        if let Some(ref health_check) = self.health_check {
-            health_check.do_send(StopActor);
+        if let Some(ref health_monitor) = self.health_monitor {
+            health_monitor.do_send(StopActor);
         }
 
         // Stop coordinator
@@ -175,11 +176,11 @@ impl Handler<StopActor> for CdcProcessor {
     }
 }
 
-impl Handler<StopActor> for HealthCheckActor {
+impl Handler<StopActor> for HealthMonitorActor {
     type Result = ();
 
     fn handle(&mut self, _: StopActor, ctx: &mut Self::Context) {
-        tracing::info!("HealthCheckActor received stop signal");
+        tracing::info!("HealthMonitorActor received stop signal");
         ctx.stop();
     }
 }

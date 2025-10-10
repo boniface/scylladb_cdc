@@ -1,12 +1,13 @@
 use actix::prelude::*;
 use std::sync::Arc;
 use std::collections::HashMap;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use crate::messaging::RedpandaClient;
 use crate::utils::CircuitState;
+use crate::actors::core::{HealthStatus, ComponentHealth};
 
 // ============================================================================
-// Health Check Actor - Monitors system health
+// Health Monitor Actor - Monitors system health
 // ============================================================================
 //
 // Responsibilities:
@@ -16,21 +17,6 @@ use crate::utils::CircuitState;
 // - Aggregate system-wide health
 //
 // ============================================================================
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum HealthStatus {
-    Healthy,
-    Degraded(String),
-    Unhealthy(String),
-}
-
-#[derive(Debug, Clone)]
-pub struct ComponentHealth {
-    pub name: String,
-    pub status: HealthStatus,
-    pub last_check: DateTime<Utc>,
-    pub details: Option<String>,
-}
 
 // ============================================================================
 // Messages
@@ -52,19 +38,19 @@ pub struct GetSystemHealth;
 pub struct SystemHealth {
     pub overall_status: HealthStatus,
     pub components: HashMap<String, ComponentHealth>,
-    pub check_time: DateTime<Utc>,
+    pub check_time: chrono::DateTime<Utc>,
 }
 
 // ============================================================================
-// Health Check Actor
+// Health Monitor Actor
 // ============================================================================
 
-pub struct HealthCheckActor {
+pub struct HealthMonitorActor {
     components: HashMap<String, ComponentHealth>,
     redpanda: Option<Arc<RedpandaClient>>,
 }
 
-impl HealthCheckActor {
+impl HealthMonitorActor {
     pub fn new(redpanda: Arc<RedpandaClient>) -> Self {
         Self {
             components: HashMap::new(),
@@ -96,30 +82,13 @@ impl HealthCheckActor {
             HealthStatus::Healthy
         }
     }
-
-    async fn check_redpanda_health(&self) -> HealthStatus {
-        if let Some(ref redpanda) = self.redpanda {
-            let cb_state = redpanda.get_circuit_breaker_state().await;
-            match cb_state {
-                CircuitState::Closed => HealthStatus::Healthy,
-                CircuitState::HalfOpen => {
-                    HealthStatus::Degraded("Circuit breaker half-open".to_string())
-                }
-                CircuitState::Open => {
-                    HealthStatus::Unhealthy("Circuit breaker open".to_string())
-                }
-            }
-        } else {
-            HealthStatus::Unhealthy("Redpanda client not initialized".to_string())
-        }
-    }
 }
 
-impl Actor for HealthCheckActor {
+impl Actor for HealthMonitorActor {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        tracing::info!("HealthCheckActor started");
+        tracing::info!("HealthMonitorActor started");
 
         // Get address before borrowing ctx
         let addr = ctx.address();
@@ -156,7 +125,7 @@ impl Actor for HealthCheckActor {
     }
 }
 
-impl Handler<UpdateHealth> for HealthCheckActor {
+impl Handler<UpdateHealth> for HealthMonitorActor {
     type Result = ();
 
     fn handle(&mut self, msg: UpdateHealth, _: &mut Self::Context) {
@@ -177,7 +146,7 @@ impl Handler<UpdateHealth> for HealthCheckActor {
     }
 }
 
-impl Handler<GetSystemHealth> for HealthCheckActor {
+impl Handler<GetSystemHealth> for HealthMonitorActor {
     type Result = MessageResult<GetSystemHealth>;
 
     fn handle(&mut self, _msg: GetSystemHealth, _: &mut Self::Context) -> Self::Result {

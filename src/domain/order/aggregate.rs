@@ -35,29 +35,7 @@ pub struct OrderAggregate {
 }
 
 impl OrderAggregate {
-    /// Load aggregate from event history
-    pub fn load_from_events(events: Vec<EventEnvelope<OrderEvent>>) -> Result<Self> {
-        if events.is_empty() {
-            bail!("Cannot load aggregate from empty event list");
-        }
-
-        // Apply first event to create aggregate
-        let first = &events[0];
-        let mut aggregate = Self::apply_first_event(&first.event_data)
-            .map_err(|e| anyhow::anyhow!("Failed to apply first event: {}", e))?;
-
-        // Set version from first event
-        aggregate.version = first.sequence_number;
-
-        // Apply remaining events
-        for envelope in events.iter().skip(1) {
-            aggregate.apply_event(&envelope.event_data)
-                .map_err(|e| anyhow::anyhow!("Failed to apply event: {}", e))?;
-            aggregate.version = envelope.sequence_number;
-        }
-
-        Ok(aggregate)
-    }
+    // load_from_events is now in the Aggregate trait implementation below
 
     /// Validate business rules before emitting events
     fn validate_items(&self, items: &[OrderItem]) -> Result<(), OrderError> {
@@ -229,5 +207,28 @@ impl Aggregate for OrderAggregate {
 
     fn version(&self) -> i64 {
         self.version
+    }
+
+    fn load_from_events(events: Vec<EventEnvelope<Self::Event>>) -> Result<Self> {
+        if events.is_empty() {
+            bail!("Cannot load aggregate from empty event list");
+        }
+
+        // Apply first event to create aggregate
+        let first = &events[0];
+        let mut aggregate = Self::apply_first_event(&first.event_data)
+            .map_err(|e| anyhow::anyhow!("Failed to apply first event: {}", e))?;
+
+        // Set version from first event
+        aggregate.version = first.sequence_number;
+
+        // Apply remaining events
+        for envelope in events.iter().skip(1) {
+            aggregate.apply_event(&envelope.event_data)
+                .map_err(|e| anyhow::anyhow!("Failed to apply event: {}", e))?;
+            aggregate.version = envelope.sequence_number;
+        }
+
+        Ok(aggregate)
     }
 }

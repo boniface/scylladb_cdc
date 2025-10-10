@@ -3,7 +3,7 @@ use scylla::client::session::Session;
 use std::sync::Arc;
 use crate::messaging::RedpandaClient;
 use crate::utils::{retry::{retry_with_backoff, RetryConfig, RetryResult}, CircuitBreakerError};
-use crate::actors::dlq_actor::{DlqActor, AddToDlq};
+use super::{DlqActor, AddToDlq};
 use uuid::Uuid;
 use chrono::Utc;
 use scylla_cdc::consumer::{Consumer, ConsumerFactory, CDCRow, OperationType};

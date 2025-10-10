@@ -16,8 +16,8 @@
 // ============================================================================
 
 pub mod order;
+pub mod customer;
 
 // Future aggregates can be added here:
-// pub mod customer;
 // pub mod product;
 // pub mod payment;
