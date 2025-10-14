@@ -1,0 +1,678 @@
+= ScyllaDB Event Sourcing Architecture
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+:source-highlighter: rouge
+
+== Overview
+
+Event Sourcing system with CQRS using ScyllaDB CDC for event streaming and projection updates.
+
+== C4 Architecture Diagrams
+
+=== Level 1: System Context
+
+[plantuml, system-context, svg]
+----
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+
+Person(user, "Application User", "Issues commands and queries data")
+
+System_Boundary(system, "Event Sourcing System") {
+    System(app, "Event Sourcing Application", "Handles commands, stores events, processes CDC")
+}
+
+System_Ext(scylla, "ScyllaDB", "Event store and read models")
+System_Ext(redpanda, "Redpanda", "External event streaming")
+System_Ext(prometheus, "Prometheus", "Metrics collection")
+
+Rel(user, app, "Sends commands", "HTTP/gRPC")
+Rel(user, app, "Queries data", "HTTP/gRPC")
+Rel(app, scylla, "Reads/Writes", "CQL")
+Rel(app, redpanda, "Publishes events", "Kafka Protocol")
+Rel(prometheus, app, "Scrapes metrics", "HTTP")
+
+@enduml
+----
+
+=== Level 2: Container Diagram
+
+[plantuml, container-diagram, svg]
+----
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+Person(user, "User", "Application user")
+
+System_Boundary(app, "Event Sourcing Application") {
+    Container(api, "API Layer", "Rust/Actix", "Receives commands and queries")
+    Container(domain, "Domain Layer", "Rust", "Order & Customer aggregates with business logic")
+    Container(eventstore, "Event Store", "Rust", "Persists and loads events")
+    Container(cdc, "CDC Processor", "Rust/Actix Actor", "Consumes CDC stream")
+    Container(projections, "Projection Consumers", "Rust/Actix Actor", "Updates read models")
+    Container(publisher, "Event Publisher", "Rust/Actix Actor", "Publishes to Redpanda")
+    Container(coordinator, "Coordinator Actor", "Rust/Actix Actor", "Supervises actors")
+    Container(health, "Health Monitor", "Rust/Actix Actor", "Monitors system health")
+    Container(dlq, "DLQ Actor", "Rust/Actix Actor", "Handles failed messages")
+}
+
+ContainerDb(scylla, "ScyllaDB", "NoSQL Database", "Event store, outbox, projections")
+System_Ext(redpanda, "Redpanda", "Event streaming")
+System_Ext(prometheus, "Prometheus", "Metrics")
+
+Rel(user, api, "Commands/Queries", "HTTP")
+Rel(api, domain, "Execute command", "Function call")
+Rel(domain, eventstore, "Store events", "Function call")
+Rel(eventstore, scylla, "Batch write", "CQL")
+
+Rel(scylla, cdc, "CDC Stream", "CDC Protocol")
+Rel(cdc, projections, "Route event", "Actor message")
+Rel(cdc, publisher, "Route event", "Actor message")
+Rel(projections, scylla, "Update read model", "CQL")
+Rel(publisher, redpanda, "Publish event", "Kafka")
+
+Rel(coordinator, cdc, "Supervises", "Actor message")
+Rel(coordinator, projections, "Supervises", "Actor message")
+Rel(coordinator, publisher, "Supervises", "Actor message")
+Rel(coordinator, health, "Supervises", "Actor message")
+Rel(coordinator, dlq, "Supervises", "Actor message")
+
+Rel(cdc, dlq, "Failed message", "Actor message")
+Rel(prometheus, health, "Scrape metrics", "HTTP")
+
+@enduml
+----
+
+=== Level 3: Component Diagram - Domain Layer
+
+[plantuml, domain-components, svg]
+----
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+
+Container(api, "API Layer", "Rust/Actix")
+
+Container_Boundary(domain, "Domain Layer") {
+    Component(order_cmd, "Order Command Handler", "Rust", "Handles order commands")
+    Component(customer_cmd, "Customer Command Handler", "Rust", "Handles customer commands")
+
+    Component(order_agg, "Order Aggregate", "Rust", "Order business logic")
+    Component(customer_agg, "Customer Aggregate", "Rust", "Customer business logic")
+
+    Component(order_vo, "Order Value Objects", "Rust", "OrderItem, OrderStatus")
+    Component(customer_vo, "Customer Value Objects", "Rust", "Email, Address, PhoneNumber")
+}
+
+Container(eventstore, "Event Store", "Generic persistence")
+ContainerDb(scylla, "ScyllaDB", "Event persistence")
+
+Rel(api, order_cmd, "CreateOrder", "Function call")
+Rel(api, customer_cmd, "RegisterCustomer", "Function call")
+
+Rel(order_cmd, eventstore, "Load aggregate", "Function call")
+Rel(order_cmd, order_agg, "Execute command", "Function call")
+Rel(order_cmd, eventstore, "Append events", "Function call")
+
+Rel(customer_cmd, eventstore, "Load aggregate", "Function call")
+Rel(customer_cmd, customer_agg, "Execute command", "Function call")
+Rel(customer_cmd, eventstore, "Append events", "Function call")
+
+Rel(order_agg, order_vo, "Uses", "")
+Rel(customer_agg, customer_vo, "Uses", "")
+
+Rel(eventstore, scylla, "Batch write", "CQL")
+
+@enduml
+----
+
+=== Level 3: Component Diagram - CDC & Projections
+
+[plantuml, cdc-components, svg]
+----
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_WITH_LEGEND()
+
+ContainerDb(scylla, "ScyllaDB", "Event store & CDC")
+
+Container_Boundary(cdc, "CDC Processing") {
+    Component(cdc_reader, "CDC Log Reader", "Rust/ScyllaDB Client", "Reads CDC stream")
+    Component(cdc_parser, "CDC Parser", "Rust", "Parses CDC rows to events")
+    Component(router, "Event Router", "Rust", "Routes to consumers")
+}
+
+Container_Boundary(consumers, "Event Consumers") {
+    Component(proj1, "Order Read Model Consumer", "Rust", "Updates order_read_model")
+    Component(proj2, "Orders By Customer Consumer", "Rust", "Updates orders_by_customer")
+    Component(proj3, "Orders By Status Consumer", "Rust", "Updates orders_by_status")
+    Component(publisher, "Redpanda Publisher", "Rust", "Publishes to Kafka")
+}
+
+Container(dlq, "DLQ Actor", "Failed message handler")
+System_Ext(redpanda, "Redpanda", "External messaging")
+
+Rel(scylla, cdc_reader, "CDC Stream", "CDC Protocol")
+Rel(cdc_reader, cdc_parser, "CDC Row", "")
+Rel(cdc_parser, router, "Parsed Event", "")
+
+Rel(router, proj1, "Route", "Actor message")
+Rel(router, proj2, "Route", "Actor message")
+Rel(router, proj3, "Route", "Actor message")
+Rel(router, publisher, "Route", "Actor message")
+
+Rel(proj1, scylla, "UPDATE", "CQL")
+Rel(proj2, scylla, "INSERT", "CQL")
+Rel(proj3, scylla, "INSERT", "CQL")
+Rel(publisher, redpanda, "Publish", "Kafka Protocol")
+
+Rel(router, dlq, "Failed", "Actor message")
+
+@enduml
+----
+
+== Sequence Diagrams
+
+=== Command Processing Flow
+
+[plantuml, command-flow, svg]
+----
+@startuml
+participant "User" as user
+participant "Command Handler" as handler
+participant "Aggregate" as agg
+participant "Event Store" as store
+participant "ScyllaDB" as db
+
+user -> handler: CreateOrder command
+activate handler
+
+handler -> store: load_aggregate(order_id)
+activate store
+store -> db: SELECT from event_store
+db --> store: event history
+store --> handler: OrderAggregate
+deactivate store
+
+handler -> agg: handle_command(CreateOrder)
+activate agg
+agg -> agg: validate business rules
+agg --> handler: [OrderCreated event]
+deactivate agg
+
+handler -> store: append_events(events)
+activate store
+store -> db: BATCH INSERT\n- event_store\n- outbox_messages
+db --> store: success
+store --> handler: new version
+deactivate store
+
+handler --> user: version: 1
+deactivate handler
+
+@enduml
+----
+
+=== CDC Event Processing Flow
+
+[plantuml, cdc-flow, svg]
+----
+@startuml
+participant "ScyllaDB CDC" as cdc
+participant "CDC Processor" as processor
+participant "Event Router" as router
+participant "Projection Consumer" as proj
+participant "Redpanda Publisher" as pub
+participant "Read Model Table" as read
+participant "Redpanda" as kafka
+
+cdc -> processor: CDC change (INSERT into outbox)
+activate processor
+
+processor -> processor: parse CDC row
+processor -> router: parsed event
+deactivate processor
+
+activate router
+router -> proj: route event
+router -> pub: route event
+deactivate router
+
+activate proj
+proj -> proj: apply event to read model
+proj -> read: UPDATE order_read_model
+read --> proj: success
+deactivate proj
+
+activate pub
+pub -> kafka: publish event
+kafka --> pub: ack
+deactivate pub
+
+@enduml
+----
+
+=== Aggregate State Reconstruction
+
+[plantuml, aggregate-reconstruction, svg]
+----
+@startuml
+participant "Command Handler" as handler
+participant "Event Store" as store
+participant "ScyllaDB" as db
+participant "Aggregate" as agg
+
+handler -> store: load_aggregate(order_id)
+activate store
+
+store -> db: SELECT * FROM event_store\nWHERE aggregate_id = ?\nORDER BY sequence_number
+activate db
+db --> store: [Event1, Event2, Event3, ...]
+deactivate db
+
+store -> agg: create from first event
+activate agg
+agg --> store: new aggregate (version 1)
+
+loop for each remaining event
+    store -> agg: apply_event(event)
+    agg -> agg: update state
+    agg -> agg: increment version
+    agg --> store: updated aggregate
+end
+
+store --> handler: OrderAggregate (version 3)
+deactivate agg
+deactivate store
+
+@enduml
+----
+
+=== Optimistic Concurrency Control
+
+[plantuml, concurrency-control, svg]
+----
+@startuml
+participant "Handler 1" as h1
+participant "Handler 2" as h2
+participant "Event Store" as store
+participant "aggregate_sequence" as seq
+
+h1 -> store: load_aggregate(order_123)
+store --> h1: aggregate (version 5)
+
+h2 -> store: load_aggregate(order_123)
+store --> h2: aggregate (version 5)
+
+h1 -> h1: process command
+h1 -> store: append_events(expected: 5)
+activate store
+store -> seq: SELECT current_sequence
+seq --> store: current = 5
+store -> seq: UPDATE current_sequence = 6
+store --> h1: success (version 6)
+deactivate store
+
+h2 -> h2: process command
+h2 -> store: append_events(expected: 5)
+activate store
+store -> seq: SELECT current_sequence
+seq --> store: current = 6
+store -> store: version mismatch!\nexpected=5, actual=6
+store --> h2: ConcurrencyError
+deactivate store
+
+h2 -> h2: retry command
+
+@enduml
+----
+
+== Data Model
+
+=== Event Store Schema
+
+[plantuml, event-store-schema, svg]
+----
+@startuml
+entity "event_store" {
+  * aggregate_id : UUID <<PK>>
+  * sequence_number : BIGINT <<CK>>
+  --
+  event_id : UUID
+  event_type : TEXT
+  event_version : INT
+  event_data : TEXT (JSON)
+  causation_id : UUID
+  correlation_id : UUID
+  timestamp : TIMESTAMP
+}
+
+entity "aggregate_sequence" {
+  * aggregate_id : UUID <<PK>>
+  --
+  current_sequence : BIGINT
+  updated_at : TIMESTAMP
+}
+
+entity "outbox_messages" {
+  * id : UUID <<PK>>
+  --
+  aggregate_id : UUID
+  aggregate_type : TEXT
+  event_id : UUID
+  event_type : TEXT
+  event_version : INT
+  payload : TEXT (JSON)
+  topic : TEXT
+  partition_key : TEXT
+  causation_id : UUID
+  correlation_id : UUID
+  created_at : TIMESTAMP
+  published_at : TIMESTAMP
+  attempts : INT
+  last_error : TEXT
+  + CDC enabled (TTL 24h)
+}
+
+event_store ||--|| aggregate_sequence : "version tracking"
+event_store ||--o{ outbox_messages : "atomic write"
+
+@enduml
+----
+
+=== Projection Schema
+
+[plantuml, projection-schema, svg]
+----
+@startuml
+entity "order_read_model" {
+  * order_id : UUID <<PK>>
+  --
+  customer_id : UUID
+  items : TEXT (JSON)
+  status : TEXT
+  created_at : TIMESTAMP
+  updated_at : TIMESTAMP
+  version : BIGINT
+  is_deleted : BOOLEAN
+  deleted_at : TIMESTAMP
+}
+
+entity "orders_by_customer" {
+  * customer_id : UUID <<PK>>
+  * created_at : TIMESTAMP <<CK DESC>>
+  * order_id : UUID <<CK>>
+  --
+  status : TEXT
+}
+
+entity "orders_by_status" {
+  * status : TEXT <<PK>>
+  * created_at : TIMESTAMP <<CK DESC>>
+  * order_id : UUID <<CK>>
+  --
+  customer_id : UUID
+}
+
+entity "projection_offsets" {
+  * projection_name : TEXT <<PK>>
+  * partition_id : INT <<PK>>
+  --
+  last_sequence : BIGINT
+  last_event_id : UUID
+  last_processed_at : TIMESTAMP
+  events_processed : BIGINT
+  errors_count : INT
+  last_error : TEXT
+}
+
+order_read_model ||--o{ orders_by_customer : "denormalized view"
+order_read_model ||--o{ orders_by_status : "denormalized view"
+projection_offsets ..> order_read_model : "tracks progress"
+
+@enduml
+----
+
+== Deployment View
+
+[plantuml, deployment, svg]
+----
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Deployment.puml
+
+LAYOUT_WITH_LEGEND()
+
+Deployment_Node(local, "Local Development", "macOS/Linux") {
+    Deployment_Node(docker, "Docker Compose", "Docker") {
+        Container(scylla, "ScyllaDB", "Database", "Port 9042")
+        Container(redpanda, "Redpanda", "Messaging", "Port 9092")
+    }
+
+    Deployment_Node(rust, "Rust Runtime", "Tokio") {
+        Container(app, "Event Sourcing App", "Rust/Actix", "Main application")
+        Container(metrics, "Metrics Server", "Rust", "Port 9090")
+    }
+}
+
+Deployment_Node(monitoring, "Monitoring", "External") {
+    Container(prometheus, "Prometheus", "Metrics", "Scrapes :9090")
+    Container(grafana, "Grafana", "Dashboards", "Visualizes metrics")
+}
+
+Rel(app, scylla, "CQL", "Port 9042")
+Rel(app, redpanda, "Kafka Protocol", "Port 9092")
+Rel(metrics, prometheus, "Metrics", "HTTP")
+Rel(prometheus, grafana, "Data Source", "HTTP")
+
+@enduml
+----
+
+== Actor Hierarchy
+
+[plantuml, actor-hierarchy, svg]
+----
+@startuml
+@startuml
+package "Actor System" {
+  [Coordinator Actor] as coordinator
+  [CDC Processor Actor] as cdc
+  [Health Monitor Actor] as health
+  [DLQ Actor] as dlq
+  [Projection Consumer 1] as proj1
+  [Projection Consumer 2] as proj2
+  [Redpanda Publisher] as pub
+}
+
+coordinator -down-> cdc : supervises
+coordinator -down-> health : supervises
+coordinator -down-> dlq : supervises
+coordinator -down-> proj1 : supervises
+coordinator -down-> proj2 : supervises
+coordinator -down-> pub : supervises
+
+cdc .right.> dlq : routes failed messages
+cdc .down.> proj1 : routes events
+cdc .down.> proj2 : routes events
+cdc .down.> pub : routes events
+
+health .up.> coordinator : reports health
+health .down.> cdc : monitors
+health .down.> dlq : monitors
+
+note right of coordinator
+  Supervision Strategy:
+  - OneForOne restart
+  - Max 3 restarts/minute
+  - Exponential backoff
+end note
+
+@enduml
+----
+
+== Technology Stack
+
+[cols="1,2,3"]
+|===
+|Component |Technology |Purpose
+
+|Language
+|Rust
+|Performance, safety, concurrency
+
+|Database
+|ScyllaDB
+|Event store, CDC source, read models
+
+|Messaging
+|Redpanda
+|External event streaming
+
+|Actor Framework
+|Actix
+|Concurrent, fault-tolerant processing
+
+|Async Runtime
+|Tokio
+|Async I/O, task scheduling
+
+|Serialization
+|Serde (JSON)
+|Event serialization
+
+|Metrics
+|Prometheus
+|System observability
+
+|Logging
+|tracing
+|Structured logging
+
+|Error Handling
+|anyhow, thiserror
+|Error management
+|===
+
+== Performance Characteristics
+
+[cols="1,1,3"]
+|===
+|Operation |Latency |Notes
+
+|Command Processing
+|10-50ms
+|Includes event persistence
+
+|CDC Latency
+|50-200ms
+|ScyllaDB CDC detection
+
+|Projection Update
+|100-500ms
+|Total write-to-read latency
+
+|Query
+|1-10ms
+|Direct table reads
+
+|Event Replay
+|~1ms/event
+|For aggregate reconstruction
+|===
+
+== Consistency Guarantees
+
+[cols="1,1,3"]
+|===
+|Scope |Level |Details
+
+|Within Aggregate
+|Strong
+|Optimistic locking, atomic batch
+
+|Across Aggregates
+|Eventual
+|Event-driven, asynchronous
+
+|Read Models
+|Eventual
+|Updated via CDC stream
+
+|External Systems
+|At-least-once
+|Kafka delivery guarantees
+|===
+
+== Error Handling Strategy
+
+[plantuml, error-handling, svg]
+----
+@startuml
+start
+
+:Event Processing;
+
+if (Process successful?) then (yes)
+  :Update offset;
+  :Acknowledge;
+  stop
+else (no)
+  if (Transient error?) then (yes)
+    :Retry with backoff;
+    if (Retry successful?) then (yes)
+      :Update offset;
+      stop
+    else (no)
+      if (Max retries reached?) then (yes)
+        :Send to DLQ;
+        :Alert operators;
+        stop
+      else (no)
+        :Increment retry count;
+        :Exponential backoff;
+        :Retry with backoff;
+      endif
+    endif
+  else (no)
+    :Send to DLQ immediately;
+    :Alert operators;
+    stop
+  endif
+endif
+
+@enduml
+----
+
+== Future Architecture Enhancements
+
+. *Snapshots*
+** Create aggregate snapshots every N events
+** Reduce event replay overhead
+** Schema already supports snapshots
+
+. *Multi-Region*
+** Deploy across geographic regions
+** ScyllaDB multi-DC replication
+** Regional read models
+
+. *Saga Support*
+** Multi-aggregate transactions
+** Compensation logic
+** Saga orchestration patterns
+
+. *Event Replay*
+** Rebuild projections from event history
+** Time-travel debugging
+** Projection schema migration
+
+. *Event Upcasting*
+** Schema versioning
+** Backward compatibility
+** Event migration scripts
