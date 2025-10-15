@@ -15,7 +15,7 @@ Thank you for your interest in contributing! This document provides guidelines f
 
 ```bash
 # Clone repository
-git clone <repo-url>
+git clone https://github.com/boniface/scylladb_cdc
 cd scylladb_cdc
 
 # Start infrastructure
@@ -35,15 +35,15 @@ cargo run
 
 ```
 src/
-├── domain/              # Domain aggregates (Order, Customer)
+├── domain/             # Domain aggregates (Order, Customer)
 │   ├── order/          # Order aggregate with events/commands
 │   └── customer/       # Customer aggregate with events/commands
 ├── event_sourcing/     # Event sourcing infrastructure
-│   ├── core/          # Generic aggregate and event traits
-│   └── store/         # EventStore implementation
+│   ├── core/           # Generic aggregate and event traits
+│   └── store/          # EventStore implementation
 ├── actors/             # Actor infrastructure
-│   ├── core/          # Actor abstractions
-│   └── infrastructure/# CDC processor, DLQ, health monitor
+│   ├── core/           # Actor abstractions
+│   └── infrastructure/ # CDC processor, DLQ, health monitor
 ├── messaging/          # Redpanda/Kafka integration
 ├── utils/              # Circuit breaker, retry logic
 ├── metrics/            # Prometheus metrics
@@ -228,4 +228,4 @@ By contributing, you agree that your contributions will be licensed under the sa
 
 ---
 
-Thank you for contributing! 🎉
+Thank you for contributing!

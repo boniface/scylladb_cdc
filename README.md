@@ -2,7 +2,7 @@
 
 A production-ready Event Sourcing implementation using ScyllaDB CDC and Redpanda, built with Rust and the Actix actor model.
 
-## 🎯 What This Project Demonstrates
+## What This Project Demonstrates
 
 This project showcases **Event Sourcing** and **CQRS** patterns with CDC streaming:
 

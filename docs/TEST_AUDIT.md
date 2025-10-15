@@ -403,10 +403,3 @@ test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 **Current State**: The project has basic unit tests for infrastructure components (metrics, retry, circuit breaker) and a comprehensive shell-based integration test. However, there is **zero test coverage** for the critical business logic in the domain layer.
 
 **Recommendation**: Prioritize adding unit tests for Order and Customer aggregates, as these contain the core business logic and are most prone to regression. The event sourcing infrastructure also needs thorough testing, especially concurrency control.
-
-**Estimated Effort**:
-- Sprint 1 (High Priority): 40-60 tests, ~3-5 days
-- Sprint 2 (Medium Priority): 30-40 tests, ~2-3 days
-- Sprint 3 (Low Priority): 20-30 tests, ~2-3 days
-
-**Total**: ~90-130 tests needed to reach 80% coverage.

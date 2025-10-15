@@ -2,7 +2,7 @@
 
 This document provides detailed, line-by-line explanations of the key components.
 
-## 📑 Table of Contents
+## Table of Contents
 
 1. [Order Actor: Transactional Writes](#order-actor-transactional-writes)
 2. [CDC Stream Processor: Event Consumption](#cdc-stream-processor-event-consumption)
@@ -1288,4 +1288,4 @@ Next steps:
 - Try `TUTORIAL.md` for hands-on exercises
 - Check `FAQ.md` for specific questions
 
-Happy coding! 🚀
+Happy coding! 

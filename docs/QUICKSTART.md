@@ -21,7 +21,7 @@ This will:
 4. Load the complete Event Sourcing schema
 5. You can then run the app
 
-## 🚀 Run the Application
+## Run the Application
 
 ### First Time Setup
 
@@ -47,14 +47,14 @@ Or start everything from scratch:
 make dev
 ```
 
-## 📊 What to Expect
+## What to Expect
 
 ```
-🚀 Starting ScyllaDB Event Sourcing with CDC
-📊 Event Sourcing + CQRS + Direct CDC Projections
+- Starting ScyllaDB Event Sourcing with CDC
+- Event Sourcing + CQRS + Direct CDC Projections
 
 ════════════════════════════════════════════════════════════
-📝 Event Sourcing Demo - Full Order Lifecycle
+ Event Sourcing Demo - Full Order Lifecycle
 ════════════════════════════════════════════════════════════
 
 1️⃣  Creating order via Event Sourcing CommandHandler...
@@ -149,7 +149,7 @@ docker exec $(docker-compose ps -q scylla) cqlsh -e "USE orders_ks; DESC TABLES;
 make clean
 ```
 
-## 📝 Available Commands
+## Available Commands
 
 ```bash
 make help       # Show all commands
@@ -163,7 +163,7 @@ make metrics    # View Prometheus metrics
 make clean      # Stop and clean up
 ```
 
-## 🎯 Quick Commands Reference
+## Quick Commands Reference
 
 ```bash
 # First time or after errors
@@ -179,7 +179,7 @@ make dev
 make clean
 ```
 
-## ⚡ Why "make reset"?
+## Why "make reset"?
 
 ScyllaDB's `CREATE TABLE IF NOT EXISTS` doesn't alter existing tables. If an old schema exists with fewer columns, it won't be updated. 
 
@@ -188,7 +188,7 @@ ScyllaDB's `CREATE TABLE IF NOT EXISTS` doesn't alter existing tables. If an old
 - **Removes volumes** (deletes old schema)
 - Ensures fresh start with correct schema
 
-## 📖 More Information
+## More Information
 
 - **README.md** - Complete documentation
 - **EVENT_SOURCING_GUIDE.md** - Event Sourcing concepts

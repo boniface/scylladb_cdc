@@ -28,13 +28,13 @@ A separate process (CDC processor) reads the outbox and publishes events. This g
 
 ### Q: Why use ScyllaDB instead of PostgreSQL?
 
-**A:** This project uses ScyllaDB to demonstrate:
+**A:** This project uses ScyllaDB to demonstrate, eventually, we could be wrong:
 1. **High-performance CDC**: ScyllaDB's CDC is optimized for throughput
 2. **Horizontal scalability**: Easy to add nodes
-3. **Low latency**: < 100ms from write to CDC capture
-4. **Rust ecosystem**: Great Rust driver support
+3. **Low latency**: < 100ms from write to CDC capture, hopefully
+4. **Rust ecosystem**: Great Rust driver support from ScyllaDB group that works well
 
-PostgreSQL with Debezium is also a valid choice! The pattern is database-agnostic.
+PostgreSQL with Debezium is also a valid choice! The pattern is database-agnostic and there are probably many solutions out there demonstrating this.
 
 ---
 
@@ -42,16 +42,16 @@ PostgreSQL with Debezium is also a valid choice! The pattern is database-agnosti
 
 **A:**
 
-| Feature | Polling (Phase 2) | CDC Streaming (Phase 3) |
-|---------|-------------------|-------------------------|
+| Feature | Polling (Naive Approach )                                         | CDC Streaming (What is used)            |
+|---------|-------------------------------------------------------------------|-----------------------------------------|
 | **How it works** | Query `SELECT * FROM outbox WHERE created_at > ?` every N seconds | Database pushes changes via CDC streams |
-| **Latency** | 0-N seconds (e.g., 0-5s) | < 100ms |
-| **Database load** | Queries every interval, even if empty | No queries (push model) |
-| **Scalability** | Limited by query performance | Excellent (parallel streams) |
-| **Complexity** | Simple | Moderate |
-| **When to use** | Educational purposes, simple cases | Production systems |
+| **Latency** | 0-N seconds (e.g., 0-5s)                                          | < 100ms                                 |
+| **Database load** | Queries every interval, even if empty                             | No queries (push model)                 |
+| **Scalability** | Limited by query performance                                      | Excellent (parallel streams)            |
+| **Complexity** | Simple                                                            | Moderate                                |
+| **When to use** | Educational purposes, simple cases                                | Production systems                      |
 
-**This project implements BOTH** for educational comparison! See `COMPARISON.md` for details.
+**This project implements only implements the CDC Streaming approach.
 
 ---
 
@@ -94,24 +94,6 @@ T2: Supervisor restarts consumer ♻️
 T3: Resume from checkpoint (event #99)
 T4: Re-process events #99-#100 (idempotent)
 ```
-
----
-
-### Q: Why does the project have two CDC processors?
-
-**A:** For **educational purposes**:
-
-1. **`cdc_processor_polling.rs`** (Phase 2): Shows the simple polling approach
-   - Easy to understand
-   - Works with any database
-   - Higher latency
-
-2. **`cdc_processor.rs`** (Phase 3): Shows the production approach
-   - Real-time streaming
-   - Lower latency
-   - Better performance
-
-You can compare both implementations side-by-side!
 
 ---
 
