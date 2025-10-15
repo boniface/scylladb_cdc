@@ -1288,4 +1288,12 @@ Next steps:
 - Try `TUTORIAL.md` for hands-on exercises
 - Check `FAQ.md` for specific questions
 
+---
+
+## Documentation Links
+
+- [Return to Documentation Index](INDEX.md) - Back to the main documentation index
+- [Return to README](../README.md) - Back to main project page
+- [Main Tutorial](TUTORIAL.md) - Complete Event Sourcing tutorial with rich diagrams
+
 Happy coding! 

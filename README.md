@@ -1,30 +1,38 @@
 # ScyllaDB Event Sourcing with CDC
 
-A production-ready Event Sourcing implementation using ScyllaDB CDC and Redpanda, built with Rust and the Actix actor model.
+An Event Sourcing implementation using ScyllaDB CDC and Redpanda, built with Rust and the Actix actor model.
 
 ## What This Project Demonstrates
 
 This project showcases **Event Sourcing** and **CQRS** patterns with CDC streaming:
 
-- ✅ **Event Sourcing** - Events as source of truth
-- ✅ **CQRS** - Separate write/read models
-- ✅ **CDC Streaming** - Direct CDC consumption for projections
-- ✅ **Outbox Pattern** - Reliable event publishing
-- ✅ **Actor Supervision** - Fault-tolerant architecture
-- ✅ **DLQ & Retry** - Production error handling
-- ✅ **Prometheus Metrics** - Observability
+- **Event Sourcing** - Events as source of truth
+- **CQRS** - Separate write/read models
+- **CDC Streaming** - Direct CDC consumption for projections
+- **Outbox Pattern** - Reliable event publishing
+- **Actor Supervision** - Fault-tolerant architecture
+- **DLQ & Retry** - Production error handling
+- **Prometheus Metrics** - Observability
 
-## 📐 Architecture
+## Architecture
 
-```
-Command → Aggregate → Events → [event_store + outbox] (atomic)
-                                         ↓
-                                    CDC Stream
-                                         ↓
-                          ┌──────────────┴──────────────┐
-                          ↓                             ↓
-                    Projections                    Redpanda
-                   (Read Models)                (External Systems)
+```mermaid
+graph TD
+    A[User Command] --> B[OrderCommandHandler]
+    B --> C[Load OrderAggregate from events]
+    C --> D[Validate Command]
+    D --> E[Apply Command to Aggregate]
+    E --> F[Generate Domain Events]
+    F --> G[Wrap in Event Envelopes]
+    G --> H[Atomic Batch: event_store + outbox_messages]
+    H --> I[ScyllaDB CDC Streams changes]
+    I --> J[CDC Processor consumes CDC stream]
+    J --> K[Publish to Redpanda with retry/DLQ]
+    K --> L[Downstream Services]
+    
+    M[Query Request] --> N[Read from event_store]
+    N --> O[Replay to current state]
+    O --> P[Return current state]
 ```
 
 ### Key Components
@@ -46,7 +54,7 @@ Command → Aggregate → Events → [event_store + outbox] (atomic)
 - `HealthCheckActor` - System health monitoring
 - Prometheus metrics on `:9090/metrics`
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -73,13 +81,10 @@ cqlsh -f src/db/schema.cql
 
 Creates:
 - `event_store` - Event log (source of truth)
-- `outbox_messages` - CDC-enabled outbox (TTL 24h)
-- `aggregate_sequence` - Optimistic locking
-- `order_read_model` - Projection read model
-- `orders_by_customer` - Projection by customer
-- `orders_by_status` - Projection by status
+- `outbox_messages` - CDC-enabled outbox (WITH cdc = {'enabled': true})
+- `aggregate_sequence` - Optimistic locking and version tracking
 - `dead_letter_queue` - Failed messages
-- Snapshot and projection tracking tables
+
 
 ### 3. Run Application
 
@@ -99,32 +104,55 @@ Each command:
 - Writes atomically to `event_store` + `outbox_messages`
 - Streams via CDC to Redpanda
 
-## 📊 Monitoring
+## Monitoring
 
 - **Metrics**: http://localhost:9090/metrics
 - **Redpanda Console**: http://localhost:8080 (if configured)
 - **Logs**: Structured logging with tracing
 
-## 🏗️ Project Structure
+## Project Structure
 
 ```
 src/
-├── event_sourcing/          # Event Sourcing core
-│   ├── events.rs            # EventEnvelope + domain events
-│   ├── aggregate.rs         # OrderAggregate with business logic
-│   ├── event_store_simple.rs # EventStore + CommandHandler
-│   └── projection_consumer.rs # Direct CDC projections
-├── actors/                  # Actor system
-│   ├── coordinator.rs       # Supervision tree
-│   ├── cdc_processor.rs     # CDC streaming
-│   ├── dlq_actor.rs         # Dead letter queue
-│   └── health_check.rs      # Health monitoring
-├── messaging/               # Redpanda integration
-│   └── redpanda.rs          # Kafka client
-├── utils/                   # Infrastructure
-│   ├── circuit_breaker.rs   # Circuit breaker pattern
-│   └── retry.rs             # Exponential backoff
+├── event_sourcing/          # Generic Event Sourcing infrastructure
+│   ├── core/                # Core abstractions (Aggregate, EventEnvelope)
+│   │   ├── aggregate.rs     # Generic Aggregate trait
+│   │   └── event.rs         # EventEnvelope and DomainEvent trait
+│   └── store/               # Generic persistence layer
+│       ├── event_store.rs   # Generic EventStore implementation
+│       └── ...              # Future store components
+├── domain/                  # Domain-specific logic
+│   ├── order/               # Order aggregate and related types
+│   │   ├── aggregate.rs     # OrderAggregate implementation
+│   │   ├── commands.rs      # OrderCommand enum
+│   │   ├── events.rs        # OrderEvent enum and related events
+│   │   ├── errors.rs        # OrderError enum
+│   │   ├── value_objects.rs # OrderItem, OrderStatus, etc.
+│   │   └── command_handler.rs # OrderCommandHandler
+│   ├── customer/            # Customer aggregate (example)
+│   │   ├── aggregate.rs     # CustomerAggregate implementation
+│   │   ├── commands.rs      # CustomerCommand enum
+│   │   ├── events.rs        # CustomerEvent enum and related events
+│   │   ├── errors.rs        # CustomerError enum
+│   │   ├── value_objects.rs # Customer-specific value objects
+│   │   └── command_handler.rs # CustomerCommandHandler
+│   └── ...                  # Future aggregates (product, payment, etc.)
+├── actors/                  # Actor system for infrastructure
+│   ├── core/                # Abstract actor traits
+│   ├── infrastructure/      # Concrete infrastructure actors
+│   │   ├── coordinator.rs   # Supervision tree manager
+│   │   ├── cdc_processor.rs # CDC streaming with real ScyllaDB CDC
+│   │   ├── dlq.rs           # Dead letter queue
+│   │   └── health_monitor.rs # Health monitoring
+│   └── mod.rs               # Actor module exports
+├── db/                      # Database interaction
+│   └── schema.cql           # ScyllaDB schema
+├── messaging/               # External messaging
+│   └── redpanda_client.rs   # Redpanda/Kafka integration
+├── utils/                   # Utility functions
+│   └── retry.rs             # Retry with backoff and circuit breaker
 ├── metrics/                 # Prometheus metrics
+│   └── metrics.rs           # Metrics definitions and server
 └── main.rs                  # Application entry point
 ```
 
@@ -174,88 +202,102 @@ Read models built from events:
 - `orders_by_status` - Operational dashboards
 - Can be rebuilt at any time
 
-## 🔄 CDC Architecture
+## CDC Architecture
 
-### Direct CDC Consumption (Approach 2)
+### Real ScyllaDB CDC Implementation
 
-**For Internal Projections**:
-```
-event_store + outbox → CDC Stream → Projection Consumer → Read Model
-                                    ↑
-                              Direct consumption
-                              (no intermediary)
-```
+The actual implementation uses the official `scylla-cdc` Rust library to consume directly from ScyllaDB's CDC log tables in real-time:
 
-**For External Systems**:
 ```
-event_store + outbox → CDC Stream → Redpanda Publisher → Redpanda
-                                    ↑
-                              One of many CDC consumers
+event_store + outbox_messages (WITH cdc = {'enabled': true})
+         ↓
+CDC Log Tables (hidden, created automatically by ScyllaDB)
+         ↓
+scylla-cdc library → OutboxCDCConsumer → Publish to Redpanda
+         ↓
+Real-time streaming with generation handling, checkpointing, and retry
 ```
 
-**Benefits**:
-- ✅ Low latency (~50ms)
-- ✅ Independent consumers
-- ✅ Fault isolation
-- ✅ Simple architecture
+**Real Implementation Features**:
+- TRUE STREAMING: No polling, real-time event delivery
+- Low latency (~50ms typical)
+- Generation handling: Automatically handles schema changes
+- Direct consumption from CDC log tables
+- Built-in checkpointing and resumption
+- Retry with backoff and circuit breaker
+- Dead Letter Queue for failed events
+- Fault isolation with actor supervision
+- Multiple parallel consumers per VNode group
 
-See `CDC_PROJECTIONS_ARCHITECTURE.md` for deep dive.
-
-## ✨ Event Sourcing Features
+## Event Sourcing Features
 
 ### Implemented ✅
 
-- [x] Event Store (append-only)
-- [x] Aggregate Root pattern
-- [x] Command Handler with validation
+- [x] Generic Event Sourcing Infrastructure (Aggregate trait, EventEnvelope, EventStore)
+- [x] Domain-Driven Design with clear aggregate boundaries
+- [x] Order and Customer aggregates with full business logic
+- [x] Command handlers orchestrating Command → Aggregate → Events → Event Store
 - [x] Event metadata (causation, correlation, versioning)
-- [x] Optimistic concurrency control
-- [x] Atomic write to event_store + outbox
-- [x] CDC streaming to Redpanda
-- [x] DLQ for failed messages
-- [x] Retry with exponential backoff
-- [x] Circuit breaker
-- [x] Prometheus metrics
-- [x] Actor supervision
+- [x] Optimistic concurrency control with version tracking
+- [x] Atomic write to event_store + outbox using ScyllaDB batches
+- [x] Real ScyllaDB CDC streaming using scylla-cdc library
+- [x] DLQ for failed messages with actor supervision
+- [x] Retry with exponential backoff and circuit breaker
+- [x] Prometheus metrics and health monitoring
+- [x] Actor supervision tree for fault tolerance
+- [x] Multi-aggregate support (Order, Customer examples)
+- [x] Complete order lifecycle (Create, Confirm, Ship, Deliver, Cancel)
 
 ### Ready to Implement 🚧
 
-- [ ] Projections (code exists, needs concrete implementations)
-- [ ] Snapshots (schema ready, needs integration)
-- [ ] Event replay (for rebuilding projections)
-- [ ] Event upcasting (schema versioning)
-- [ ] Sagas (multi-aggregate transactions)
+- [ ] Read model projections (for optimized queries)
+- [ ] Aggregate snapshots (for performance with high-event aggregates)
+- [ ] Event upcasting (for schema evolution)
+- [ ] Advanced monitoring and alerting
+- [ ] More aggregate examples (Product, Payment, etc.)
 
-## 📝 Usage Example
+## Usage Example
 
 ```rust
-use event_sourcing::{EventStore, OrderCommandHandler, OrderCommand, OrderItem};
+use event_sourcing::store::EventStore;
+use domain::order::{OrderCommandHandler, OrderCommand, OrderItem, OrderEvent};
+use std::sync::Arc;
 
-// Initialize
-let event_store = Arc::new(EventStore::new(session));
-let handler = Arc::new(OrderCommandHandler::new(event_store));
+// Initialize generic event store with concrete event type
+let event_store = Arc::new(EventStore::<OrderEvent>::new(
+    session.clone(),
+    "Order",         // aggregate type name
+    "order-events"   // topic name
+));
+
+// Create command handler
+let command_handler = Arc::new(OrderCommandHandler::new(event_store.clone()));
 
 // Execute command
-let version = handler.handle(
+let version = command_handler.handle(
     order_id,
     OrderCommand::CreateOrder {
         order_id,
         customer_id,
-        items: vec![OrderItem { product_id, quantity: 2 }],
+        items: vec![
+            OrderItem {
+                product_id: uuid::Uuid::new_v4(),
+                quantity: 2,
+            },
+        ],
     },
     correlation_id,
 ).await?;
 
 // Events are now in:
-// - event_store (permanent)
-// - outbox_messages (CDC streams this)
+// - event_store (permanent, source of truth)
+// - outbox_messages (CDC streams this to Redpanda)
 
-// CDC will stream to:
-// - Projections (update read models)
-// - Redpanda (external systems)
+// Real CDC processor will consume from outbox_messages CDC log
+// and publish to Redpanda with retry and DLQ capabilities
 ```
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Run tests
@@ -275,30 +317,23 @@ Tests cover:
 - Status transitions
 - Concurrency conflicts
 
-## 📚 Documentation
+## Documentation
 
-Comprehensive documentation is available in the [`docs/`](./docs/) folder:
+Comprehensive documentation is available in the [documentation index](./docs/INDEX.md), which provides a complete overview of all available documentation:
 
-- **[Quick Start Guide](./docs/QUICKSTART.md)** - Get up and running in 5 minutes
-- **[Event Sourcing Guide](./docs/EVENT_SOURCING_GUIDE.md)** - Core concepts and patterns
-- **[Architecture](./docs/ARCHITECTURE.md)** - System design and CDC implementation
-- **[Architecture (AsciiDoc)](./docs/ARCHITECTURE.adoc)** - System design with C4 diagrams (PlantUML)
-- **[Code Walkthrough](./docs/CODE_WALKTHROUGH.md)** - Detailed code structure
-- **[Diagrams](./docs/DIAGRAMS.md)** - Visual architecture diagrams
-- **[FAQ](./docs/FAQ.md)** - Frequently asked questions
-- **[Test Audit](./docs/TEST_AUDIT.md)** - Test coverage status and roadmap
-- **[Contributing](./docs/CONTRIBUTING.md)** - Contribution guidelines
+- **[Documentation Index](./docs/INDEX.md)** - Start here for all project documentation
+- **[Main Tutorial](docs/TUTORIAL.md)** - Complete Event Sourcing tutorial with  diagrams
 
 Additional reference: [`src/db/schema.cql`](./src/db/schema.cql) - Annotated database schema
 
-## 🔧 Configuration
+## Configuration
 
 ### Environment Variables
 
 ```bash
 RUST_LOG=info                    # Log level
-SCYLLA_NODES=127.0.0.1:9042     # ScyllaDB contact points
-REDPANDA_BROKERS=127.0.0.1:9092 # Redpanda brokers
+SCYLLA_NODES=127.0.0.1:9042      # ScyllaDB contact points
+REDPANDA_BROKERS=127.0.0.1:9092  # Redpanda brokers
 METRICS_PORT=9090                # Prometheus metrics port
 ```
 
@@ -309,7 +344,7 @@ Customize:
 - Redpanda configuration
 - Port mappings
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Schema Not Found
 
@@ -336,7 +371,7 @@ DESC TABLE orders_ks.outbox_messages;
 -- Should show: cdc = {'enabled': true}
 ```
 
-## 🎯 Production Considerations
+## Production Considerations
 
 ### Performance
 
@@ -366,14 +401,14 @@ Watch:
 - Circuit breaker state
 - Projection lag
 
-## 📖 References
+## References
 
 - [Event Sourcing by Martin Fowler](https://martinfowler.com/eaaDev/EventSourcing.html)
 - [CQRS by Greg Young](https://cqrs.files.wordpress.com/2010/11/cqrs_documents.pdf)
 - [ScyllaDB CDC](https://docs.scylladb.com/stable/using-scylla/cdc/)
 - [Outbox Pattern](https://microservices.io/patterns/data/transactional-outbox.html)
 
-## 🤝 Contributing
+## Contributing
 
 This is an educational project. Contributions welcome:
 
@@ -383,10 +418,10 @@ This is an educational project. Contributions welcome:
 4. Add tests
 5. Submit a pull request
 
-## 📄 License
+## License
 
 MIT License - see LICENSE file for details
 
 ---
 
-**Built with** 🦀 Rust + ⚡ ScyllaDB + 🐼 Redpanda
+**Built with** 🦀 Rust +  ScyllaDB +  Redpanda

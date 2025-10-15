@@ -403,3 +403,10 @@ test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 **Current State**: The project has basic unit tests for infrastructure components (metrics, retry, circuit breaker) and a comprehensive shell-based integration test. However, there is **zero test coverage** for the critical business logic in the domain layer.
 
 **Recommendation**: Prioritize adding unit tests for Order and Customer aggregates, as these contain the core business logic and are most prone to regression. The event sourcing infrastructure also needs thorough testing, especially concurrency control.
+
+
+## Documentation Links
+
+- [Return to Documentation Index](INDEX.md) - Back to the main documentation index
+- [Return to README](../README.md) - Back to main project page
+- [Main Tutorial](TUTORIAL.md) - Complete Event Sourcing tutorial with rich diagrams
