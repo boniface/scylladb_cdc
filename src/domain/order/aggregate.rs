@@ -232,3 +232,479 @@ impl Aggregate for OrderAggregate {
         Ok(aggregate)
     }
 }
+
+// ============================================================================
+// Unit Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::order::commands::OrderCommand;
+    use crate::event_sourcing::core::EventEnvelope;
+
+    fn create_test_items() -> Vec<OrderItem> {
+        vec![
+            OrderItem { product_id: Uuid::new_v4(), quantity: 2 },
+            OrderItem { product_id: Uuid::new_v4(), quantity: 1 },
+        ]
+    }
+
+    #[test]
+    fn test_order_creation_with_valid_items() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+
+        let event = OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: items.clone(),
+        });
+
+        let aggregate = OrderAggregate::apply_first_event(&event).unwrap();
+
+        assert_eq!(aggregate.customer_id, customer_id);
+        assert_eq!(aggregate.items.len(), 2);
+        assert_eq!(aggregate.status, OrderStatus::Created);
+        assert_eq!(aggregate.version, 0);
+        assert!(aggregate.tracking_number.is_none());
+        assert!(aggregate.carrier.is_none());
+        assert!(aggregate.cancelled_reason.is_none());
+    }
+
+    #[test]
+    fn test_order_creation_with_empty_items_fails() {
+        let customer_id = Uuid::new_v4();
+        let items: Vec<OrderItem> = vec![];
+
+        let aggregate = OrderAggregate::apply_first_event(&OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: vec![],
+        })).unwrap();
+
+        let command = OrderCommand::CreateOrder {
+            order_id: Uuid::new_v4(),
+            customer_id,
+            items,
+        };
+
+        let result = aggregate.handle_command(&command);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), OrderError::EmptyItems));
+    }
+
+    #[test]
+    fn test_order_creation_with_invalid_quantity_fails() {
+        let customer_id = Uuid::new_v4();
+        let items = vec![
+            OrderItem { product_id: Uuid::new_v4(), quantity: 0 },
+        ];
+
+        let aggregate = OrderAggregate::apply_first_event(&OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: vec![OrderItem { product_id: Uuid::new_v4(), quantity: 1 }],
+        })).unwrap();
+
+        let command = OrderCommand::CreateOrder {
+            order_id: Uuid::new_v4(),
+            customer_id,
+            items,
+        };
+
+        let result = aggregate.handle_command(&command);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), OrderError::InvalidQuantity(_)));
+    }
+
+    #[test]
+    fn test_order_state_transition_created_to_confirmed() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+
+        let mut aggregate = OrderAggregate::apply_first_event(&OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: items.clone(),
+        })).unwrap();
+
+        assert_eq!(aggregate.status, OrderStatus::Created);
+
+        let confirm_event = OrderEvent::Confirmed(OrderConfirmed {
+            confirmed_at: Utc::now(),
+        });
+
+        aggregate.apply_event(&confirm_event).unwrap();
+        assert_eq!(aggregate.status, OrderStatus::Confirmed);
+    }
+
+    #[test]
+    fn test_order_state_transition_confirmed_to_shipped() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+
+        let mut aggregate = OrderAggregate::apply_first_event(&OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: items.clone(),
+        })).unwrap();
+
+        aggregate.apply_event(&OrderEvent::Confirmed(OrderConfirmed {
+            confirmed_at: Utc::now(),
+        })).unwrap();
+
+        let ship_event = OrderEvent::Shipped(OrderShipped {
+            tracking_number: "TRACK123".to_string(),
+            carrier: "FedEx".to_string(),
+            shipped_at: Utc::now(),
+        });
+
+        aggregate.apply_event(&ship_event).unwrap();
+        assert_eq!(aggregate.status, OrderStatus::Shipped);
+        assert_eq!(aggregate.tracking_number, Some("TRACK123".to_string()));
+        assert_eq!(aggregate.carrier, Some("FedEx".to_string()));
+    }
+
+    #[test]
+    fn test_order_state_transition_shipped_to_delivered() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+
+        let mut aggregate = OrderAggregate::apply_first_event(&OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: items.clone(),
+        })).unwrap();
+
+        aggregate.apply_event(&OrderEvent::Confirmed(OrderConfirmed {
+            confirmed_at: Utc::now(),
+        })).unwrap();
+
+        aggregate.apply_event(&OrderEvent::Shipped(OrderShipped {
+            tracking_number: "TRACK123".to_string(),
+            carrier: "FedEx".to_string(),
+            shipped_at: Utc::now(),
+        })).unwrap();
+
+        let deliver_event = OrderEvent::Delivered(OrderDelivered {
+            delivered_at: Utc::now(),
+            signature: Some("John Doe".to_string()),
+        });
+
+        aggregate.apply_event(&deliver_event).unwrap();
+        assert_eq!(aggregate.status, OrderStatus::Delivered);
+    }
+
+    #[test]
+    fn test_cannot_ship_before_confirming() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+
+        let aggregate = OrderAggregate::apply_first_event(&OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: items.clone(),
+        })).unwrap();
+
+        let command = OrderCommand::ShipOrder {
+            tracking_number: "TRACK123".to_string(),
+            carrier: "FedEx".to_string(),
+        };
+
+        let result = aggregate.handle_command(&command);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), OrderError::NotConfirmed));
+    }
+
+    #[test]
+    fn test_cannot_deliver_before_shipping() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+
+        let mut aggregate = OrderAggregate::apply_first_event(&OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: items.clone(),
+        })).unwrap();
+
+        aggregate.apply_event(&OrderEvent::Confirmed(OrderConfirmed {
+            confirmed_at: Utc::now(),
+        })).unwrap();
+
+        let command = OrderCommand::DeliverOrder {
+            signature: Some("John Doe".to_string()),
+        };
+
+        let result = aggregate.handle_command(&command);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), OrderError::NotShipped));
+    }
+
+    #[test]
+    fn test_order_cancellation() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+
+        let mut aggregate = OrderAggregate::apply_first_event(&OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: items.clone(),
+        })).unwrap();
+
+        let cancel_event = OrderEvent::Cancelled(OrderCancelled {
+            reason: Some("Customer request".to_string()),
+            cancelled_by: Some(customer_id),
+        });
+
+        aggregate.apply_event(&cancel_event).unwrap();
+        assert_eq!(aggregate.status, OrderStatus::Cancelled);
+        assert_eq!(aggregate.cancelled_reason, Some("Customer request".to_string()));
+    }
+
+    #[test]
+    fn test_cannot_cancel_already_cancelled_order() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+
+        let mut aggregate = OrderAggregate::apply_first_event(&OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: items.clone(),
+        })).unwrap();
+
+        aggregate.apply_event(&OrderEvent::Cancelled(OrderCancelled {
+            reason: Some("First cancel".to_string()),
+            cancelled_by: Some(customer_id),
+        })).unwrap();
+
+        let command = OrderCommand::CancelOrder {
+            reason: Some("Second cancel".to_string()),
+            cancelled_by: Some(customer_id),
+        };
+
+        let result = aggregate.handle_command(&command);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), OrderError::AlreadyCancelled));
+    }
+
+    #[test]
+    fn test_cannot_cancel_delivered_order() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+
+        let mut aggregate = OrderAggregate::apply_first_event(&OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: items.clone(),
+        })).unwrap();
+
+        // Transition through states
+        aggregate.apply_event(&OrderEvent::Confirmed(OrderConfirmed {
+            confirmed_at: Utc::now(),
+        })).unwrap();
+
+        aggregate.apply_event(&OrderEvent::Shipped(OrderShipped {
+            tracking_number: "TRACK123".to_string(),
+            carrier: "FedEx".to_string(),
+            shipped_at: Utc::now(),
+        })).unwrap();
+
+        aggregate.apply_event(&OrderEvent::Delivered(OrderDelivered {
+            delivered_at: Utc::now(),
+            signature: Some("John Doe".to_string()),
+        })).unwrap();
+
+        let command = OrderCommand::CancelOrder {
+            reason: Some("Too late".to_string()),
+            cancelled_by: Some(customer_id),
+        };
+
+        let result = aggregate.handle_command(&command);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), OrderError::InvalidStatusTransition(_)));
+    }
+
+    #[test]
+    fn test_update_items_in_created_status() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+
+        let aggregate = OrderAggregate::apply_first_event(&OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: items.clone(),
+        })).unwrap();
+
+        let new_items = vec![OrderItem { product_id: Uuid::new_v4(), quantity: 3 }];
+
+        let command = OrderCommand::UpdateItems {
+            items: new_items.clone(),
+            reason: Some("Customer changed mind".to_string()),
+        };
+
+        let events = aggregate.handle_command(&command).unwrap();
+        assert_eq!(events.len(), 1);
+
+        match &events[0] {
+            OrderEvent::ItemsUpdated(e) => {
+                assert_eq!(e.items.len(), 1);
+                assert_eq!(e.items[0].quantity, 3);
+            }
+            _ => panic!("Expected ItemsUpdated event"),
+        }
+    }
+
+    #[test]
+    fn test_cannot_update_items_after_confirmation() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+
+        let mut aggregate = OrderAggregate::apply_first_event(&OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: items.clone(),
+        })).unwrap();
+
+        aggregate.apply_event(&OrderEvent::Confirmed(OrderConfirmed {
+            confirmed_at: Utc::now(),
+        })).unwrap();
+
+        let new_items = vec![OrderItem { product_id: Uuid::new_v4(), quantity: 3 }];
+
+        let command = OrderCommand::UpdateItems {
+            items: new_items,
+            reason: Some("Should fail".to_string()),
+        };
+
+        let result = aggregate.handle_command(&command);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), OrderError::InvalidStatusTransition(_)));
+    }
+
+    #[test]
+    fn test_cannot_confirm_already_confirmed_order() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+
+        let mut aggregate = OrderAggregate::apply_first_event(&OrderEvent::Created(OrderCreated {
+            customer_id,
+            items: items.clone(),
+        })).unwrap();
+
+        aggregate.apply_event(&OrderEvent::Confirmed(OrderConfirmed {
+            confirmed_at: Utc::now(),
+        })).unwrap();
+
+        let command = OrderCommand::ConfirmOrder;
+        let result = aggregate.handle_command(&command);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), OrderError::AlreadyConfirmed));
+    }
+
+    #[test]
+    fn test_version_tracking_after_event_application() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+        let aggregate_id = Uuid::new_v4();
+
+        let events = vec![
+            EventEnvelope::new(
+                aggregate_id,
+                1,
+                "OrderCreated".to_string(),
+                OrderEvent::Created(OrderCreated {
+                    customer_id,
+                    items: items.clone(),
+                }),
+                Uuid::new_v4(),
+            ),
+            EventEnvelope::new(
+                aggregate_id,
+                2,
+                "OrderConfirmed".to_string(),
+                OrderEvent::Confirmed(OrderConfirmed {
+                    confirmed_at: Utc::now(),
+                }),
+                Uuid::new_v4(),
+            ),
+            EventEnvelope::new(
+                aggregate_id,
+                3,
+                "OrderShipped".to_string(),
+                OrderEvent::Shipped(OrderShipped {
+                    tracking_number: "TRACK123".to_string(),
+                    carrier: "FedEx".to_string(),
+                    shipped_at: Utc::now(),
+                }),
+                Uuid::new_v4(),
+            ),
+        ];
+
+        let aggregate = OrderAggregate::load_from_events(events).unwrap();
+        assert_eq!(aggregate.version, 3);
+        assert_eq!(aggregate.status, OrderStatus::Shipped);
+    }
+
+    #[test]
+    fn test_load_from_events_empty_list_fails() {
+        let events: Vec<EventEnvelope<OrderEvent>> = vec![];
+        let result = OrderAggregate::load_from_events(events);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_from_events_full_lifecycle() {
+        let customer_id = Uuid::new_v4();
+        let items = create_test_items();
+        let aggregate_id = Uuid::new_v4();
+
+        let events = vec![
+            EventEnvelope::new(
+                aggregate_id,
+                1,
+                "OrderCreated".to_string(),
+                OrderEvent::Created(OrderCreated {
+                    customer_id,
+                    items: items.clone(),
+                }),
+                Uuid::new_v4(),
+            ),
+            EventEnvelope::new(
+                aggregate_id,
+                2,
+                "OrderConfirmed".to_string(),
+                OrderEvent::Confirmed(OrderConfirmed {
+                    confirmed_at: Utc::now(),
+                }),
+                Uuid::new_v4(),
+            ),
+            EventEnvelope::new(
+                aggregate_id,
+                3,
+                "OrderShipped".to_string(),
+                OrderEvent::Shipped(OrderShipped {
+                    tracking_number: "TRACK123".to_string(),
+                    carrier: "FedEx".to_string(),
+                    shipped_at: Utc::now(),
+                }),
+                Uuid::new_v4(),
+            ),
+            EventEnvelope::new(
+                aggregate_id,
+                4,
+                "OrderDelivered".to_string(),
+                OrderEvent::Delivered(OrderDelivered {
+                    delivered_at: Utc::now(),
+                    signature: Some("John Doe".to_string()),
+                }),
+                Uuid::new_v4(),
+            ),
+        ];
+
+        let aggregate = OrderAggregate::load_from_events(events).unwrap();
+        assert_eq!(aggregate.version, 4);
+        assert_eq!(aggregate.status, OrderStatus::Delivered);
+        assert_eq!(aggregate.customer_id, customer_id);
+        assert_eq!(aggregate.tracking_number, Some("TRACK123".to_string()));
+        assert_eq!(aggregate.carrier, Some("FedEx".to_string()));
+    }
+
+    #[test]
+    fn test_apply_first_event_non_created_fails() {
+        let event = OrderEvent::Confirmed(OrderConfirmed {
+            confirmed_at: Utc::now(),
+        });
+
+        let result = OrderAggregate::apply_first_event(&event);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), OrderError::NotInitialized));
+    }
+}
