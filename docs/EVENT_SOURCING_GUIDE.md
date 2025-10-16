@@ -421,7 +421,7 @@ impl Consumer for OutboxCDCConsumer {
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ### Real Event Flow
 
@@ -518,7 +518,7 @@ impl Consumer for OutboxCDCConsumer {
 
 ---
 
-## 🎓 Event Sourcing Best Practices Implemented
+## Event Sourcing Best Practices Implemented
 
 ### 1. **Event Immutability**
 - Events are never updated or deleted

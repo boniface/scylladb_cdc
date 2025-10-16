@@ -258,7 +258,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("");
     tracing::info!("════════════════════════════════════════════════════════════");
-    tracing::info!("🎉 Event Sourcing Demo Complete!");
+    tracing::info!(" Event Sourcing Demo Complete!");
     tracing::info!("════════════════════════════════════════════════════════════");
     tracing::info!("");
     tracing::info!("Aggregates Demonstrated:");
@@ -286,7 +286,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("                    Projections                    Redpanda");
     tracing::info!("                   (Read Models)                (External Systems)");
     tracing::info!("");
-    tracing::info!("📊 Metrics available at: http://localhost:9090/metrics");
+    tracing::info!(" Metrics available at: http://localhost:9090/metrics");
     tracing::info!("");
 
     Ok(())
