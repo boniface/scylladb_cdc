@@ -12,17 +12,17 @@ help:
 	@echo "make clean            - Stop services and clean up"
 
 build:
-	@echo "🔨 Building application..."
+	@echo " Building application..."
 	cargo build --release
 
 test:
-	@echo "🧪 Running unit tests..."
+	@echo " Running unit tests..."
 	cargo test
 
 dev:
-	@echo "🚀 Starting development environment..."
+	@echo " Starting development environment..."
 	@docker-compose up -d
-	@echo "⏳ Waiting for ScyllaDB to be ready..."
+	@echo " Waiting for ScyllaDB to be ready..."
 	@sleep 25
 	@$(MAKE) schema
 	@echo "✅ Services ready! Starting application..."
@@ -31,9 +31,9 @@ dev:
 reset:
 	@echo "🔄 Resetting environment (clean start)..."
 	@docker-compose down -v
-	@echo "🚀 Starting fresh containers..."
+	@echo " Starting fresh containers..."
 	@docker-compose up -d
-	@echo "⏳ Waiting for ScyllaDB to be ready..."
+	@echo " Waiting for ScyllaDB to be ready..."
 	@sleep 25
 	@$(MAKE) schema
 	@echo "✅ Environment reset complete!"
@@ -41,16 +41,16 @@ reset:
 	@echo "Now run: make run"
 
 run:
-	@echo "🚀 Starting application..."
+	@echo " Starting application..."
 	@RUST_LOG=info cargo run
 
 schema:
-	@echo "📊 Initializing Event Sourcing schema..."
+	@echo " Initializing Event Sourcing schema..."
 	@docker exec $$(docker-compose ps -q scylla) cqlsh -f /schema/schema.cql 2>&1 | grep -v "already exists" || true
 	@echo "✅ Schema initialized"
 
 metrics:
-	@echo "📊 Fetching Prometheus metrics..."
+	@echo " Fetching Prometheus metrics..."
 	@echo ""
 	@echo "=== Event Store Metrics ==="
 	@curl -s http://localhost:9090/metrics | grep "event_" || echo "No event metrics yet"
@@ -69,7 +69,7 @@ metrics:
 	@echo ""
 
 clean:
-	@echo "🧹 Cleaning up..."
+	@echo " Cleaning up..."
 	@docker-compose down -v
 	@cargo clean
 	@echo "✅ Cleanup complete"

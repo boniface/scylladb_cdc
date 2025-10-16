@@ -63,33 +63,35 @@ graph TD
 - ScyllaDB (via Docker)
 - Redpanda (via Docker)
 
-### 1. Start Infrastructure
+### 1. Start Infrastructure with Schema (Recommended)
 
 ```bash
-docker-compose up -d
+make dev
 ```
 
-This starts:
-- ScyllaDB on `localhost:9042`
-- Redpanda on `localhost:9092`
+This command:
+- Starts ScyllaDB and Redpanda with `docker-compose up -d`
+- Waits for services to be ready (~25 seconds)
+- Initializes all required schemas automatically:
+  - `event_store` - Event log (source of truth)
+  - `outbox_messages` - CDC-enabled outbox (WITH cdc = {'enabled': true})
+  - `aggregate_sequence` - Optimistic locking and version tracking
+  - `dead_letter_queue` - Failed messages
+- Runs the application with logging enabled
 
-### 2. Initialize Schema
+### 2. Alternative: Separate Commands
 
-```bash
-cqlsh -f src/db/schema.cql
-```
-
-Creates:
-- `event_store` - Event log (source of truth)
-- `outbox_messages` - CDC-enabled outbox (WITH cdc = {'enabled': true})
-- `aggregate_sequence` - Optimistic locking and version tracking
-- `dead_letter_queue` - Failed messages
-
-
-### 3. Run Application
+If you prefer to run commands separately:
 
 ```bash
-cargo run
+# Clean restart (recommended for first run)
+make reset
+
+# Or just start infrastructure
+make reset  # includes docker-compose and schema initialization
+
+# Run the application
+make run
 ```
 
 Watch the demo execute a complete order lifecycle:
@@ -300,13 +302,13 @@ let version = command_handler.handle(
 ## Testing
 
 ```bash
-# Run tests
-cargo test
+# Run tests (using Makefile)
+make test
 
-# Run with logs
+# Run with logs (manual command)
 RUST_LOG=debug cargo test
 
-# Test specific module
+# Test specific module (manual command)
 cargo test event_sourcing::aggregate::tests
 ```
 

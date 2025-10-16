@@ -1351,19 +1351,30 @@ This implementation serves as a production-ready foundation for systems requirin
 
 To run the example:
 
-1. Start the infrastructure:
+1. **Development mode with automatic setup** (recommended):
    ```bash
-   docker-compose up -d
+   make dev
+   ```
+   This command:
+   - Starts ScyllaDB and Redpanda with `docker-compose up -d`
+   - Waits for services to be ready
+   - Initializes the database schema
+   - Runs the application with logging enabled
+
+2. **Alternative: Manual setup**:
+   If you prefer to run commands separately:
+   ```bash
+   # Start infrastructure services
+   make reset  # This includes docker-compose up and schema initialization
+   
+   # Run the application
+   make run
    ```
 
-2. Initialize the database schema:
+3. **View metrics** during or after execution:
    ```bash
-   cqlsh -f src/db/schema.cql
+   make metrics
    ```
-
-3. Run the application:
-   ```bash
-   cargo run
-   ```
+   This shows real-time metrics for events, CDC processing, retries, DLQ, and circuit breaker status.
 
 The main function demonstrates a complete order lifecycle with real CDC streaming and event publishing.
