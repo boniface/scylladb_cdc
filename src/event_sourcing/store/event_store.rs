@@ -248,8 +248,8 @@ impl<E: DomainEvent> EventStore<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::order::events::{OrderEvent, OrderCreated};
-    use crate::domain::order::value_objects::OrderItem;
+    use crate::domain::order::{OrderEvent, OrderCreated};
+    use crate::domain::order::OrderItem;
 
     #[test]
     fn test_event_store_creation() {
@@ -339,7 +339,7 @@ mod tests {
                 aggregate_id,
                 2,
                 "OrderConfirmed".to_string(),
-                OrderEvent::Confirmed(crate::domain::order::events::OrderConfirmed {
+                OrderEvent::Confirmed(crate::domain::order::OrderConfirmed {
                     confirmed_at: Utc::now(),
                 }),
                 correlation_id,

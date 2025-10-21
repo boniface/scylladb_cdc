@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 
-use crate::event_sourcing::core::DomainEvent;
+use crate::event_sourcing::DomainEvent;
 use super::value_objects::OrderItem;
 
 // ============================================================================

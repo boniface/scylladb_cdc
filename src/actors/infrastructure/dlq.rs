@@ -53,16 +53,16 @@ pub struct AddToDlq {
 
 #[derive(Message)]
 #[rtype(result = "Result<Vec<DlqMessage>, String>")]
-pub struct GetDlqMessages {
+pub(crate) struct GetDlqMessages {
     pub limit: i32,
 }
 
 #[derive(Message)]
 #[rtype(result = "Result<DlqStats, String>")]
-pub struct GetDlqStats;
+pub(crate) struct GetDlqStats;
 
 #[derive(Debug, Clone)]
-pub struct DlqMessage {
+pub(crate) struct DlqMessage {
     pub id: Uuid,
     pub aggregate_id: Uuid,
     pub event_type: String,
@@ -74,7 +74,7 @@ pub struct DlqMessage {
 }
 
 #[derive(Debug, Clone)]
-pub struct DlqStats {
+pub(crate) struct DlqStats {
     pub total_messages: i64,
     pub by_event_type: std::collections::HashMap<String, i64>,
 }

@@ -2,8 +2,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 use anyhow::{Result, bail};
 
-use crate::event_sourcing::core::{Aggregate, EventEnvelope};
-use crate::event_sourcing::store::EventStore;
+use crate::event_sourcing::{Aggregate, EventEnvelope, EventStore};
 
 use super::aggregate::CustomerAggregate;
 use super::commands::CustomerCommand;

@@ -2,7 +2,7 @@ use uuid::Uuid;
 use std::collections::HashMap;
 use anyhow::Result;
 
-use crate::event_sourcing::core::{Aggregate, EventEnvelope};
+use crate::event_sourcing::{Aggregate, EventEnvelope};
 use super::value_objects::{Email, PhoneNumber, Address, CustomerStatus, CustomerTier, PaymentMethod};
 use super::commands::CustomerCommand;
 use super::events::*;

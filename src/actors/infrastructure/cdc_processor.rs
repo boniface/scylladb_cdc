@@ -2,7 +2,7 @@ use actix::prelude::*;
 use scylla::client::session::Session;
 use std::sync::Arc;
 use crate::messaging::RedpandaClient;
-use crate::utils::{retry::{retry_with_backoff, RetryConfig, RetryResult}, CircuitBreakerError};
+use crate::utils::{retry_with_backoff, RetryConfig, RetryResult};
 use super::{DlqActor, AddToDlq};
 use uuid::Uuid;
 use chrono::Utc;
@@ -36,7 +36,7 @@ const KEYSPACE: &str = "orders_ks";
 const TABLE: &str = "outbox_messages";
 
 /// Our custom consumer that processes CDC rows from outbox_messages table
-pub struct OutboxCDCConsumer {
+pub(crate) struct OutboxCDCConsumer {
     redpanda: Arc<RedpandaClient>,
     dlq_actor: Option<Addr<DlqActor>>,
     retry_config: RetryConfig,
@@ -207,7 +207,7 @@ impl Consumer for OutboxCDCConsumer {
 
 /// Factory for creating consumer instances
 /// The scylla-cdc library will create one consumer per VNode group
-pub struct OutboxConsumerFactory {
+pub(crate) struct OutboxConsumerFactory {
     redpanda: Arc<RedpandaClient>,
     dlq_actor: Option<Addr<DlqActor>>,
 }

@@ -3,7 +3,7 @@ use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use anyhow::{Result, bail};
 
-use crate::event_sourcing::core::{Aggregate, EventEnvelope};
+use crate::event_sourcing::{Aggregate, EventEnvelope};
 use super::value_objects::{OrderItem, OrderStatus};
 use super::events::*;
 use super::commands::OrderCommand;
@@ -241,7 +241,7 @@ impl Aggregate for OrderAggregate {
 mod tests {
     use super::*;
     use crate::domain::order::commands::OrderCommand;
-    use crate::event_sourcing::core::EventEnvelope;
+    use crate::event_sourcing::EventEnvelope;
 
     fn create_test_items() -> Vec<OrderItem> {
         vec![

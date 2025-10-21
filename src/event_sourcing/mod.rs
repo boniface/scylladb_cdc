@@ -8,8 +8,8 @@
 // ============================================================================
 
 // Core abstractions (GENERIC - works with any aggregate)
-pub mod core;
-pub mod store;
+mod core;
+mod store;
 
 // Re-export core infrastructure
 pub use core::*;

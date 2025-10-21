@@ -7,8 +7,8 @@
 //
 // ============================================================================
 
-pub mod health;
-pub mod supervised;
+mod health;
+mod supervised;
 
 // Re-export core types
 pub use health::*;

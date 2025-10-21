@@ -16,7 +16,7 @@ use actors::CoordinatorActor;
 use messaging::RedpandaClient;
 
 // Use new domain-layered structure
-use event_sourcing::store::EventStore;
+use event_sourcing::EventStore;
 use domain::order::{OrderCommandHandler, OrderCommand, OrderItem, OrderEvent};
 use domain::customer::{
     CustomerCommandHandler, CustomerCommand, CustomerEvent,

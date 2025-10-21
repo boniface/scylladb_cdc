@@ -10,13 +10,14 @@
 //
 // ============================================================================
 
-pub mod cdc_processor;
-pub mod dlq;
-pub mod health_monitor;
-pub mod coordinator;
+// Private module declarations
+mod cdc_processor;
+mod dlq;
+mod health_monitor;
+mod coordinator;
 
-// Re-export for convenience
+// Re-export for public API
 pub use cdc_processor::CdcProcessor;
-pub use dlq::{DlqActor, AddToDlq, GetDlqMessages, GetDlqStats, DlqMessage, DlqStats};
+pub use dlq::{DlqActor, AddToDlq};
 pub use health_monitor::{HealthMonitorActor, UpdateHealth, GetSystemHealth, SystemHealth};
 pub use coordinator::CoordinatorActor;

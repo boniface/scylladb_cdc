@@ -12,9 +12,10 @@
 //
 // ============================================================================
 
-pub mod aggregate;
-pub mod event;
+// Private module declarations
+mod aggregate;
+mod event;
 
-// Re-export core types for convenience
+// Re-export core types for public API
 pub use aggregate::Aggregate;
 pub use event::{DomainEvent, EventEnvelope, serialize_event, deserialize_event, EventUpcaster};

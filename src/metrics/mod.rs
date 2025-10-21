@@ -1,10 +1,12 @@
-pub mod server;
+// Private module declaration
+mod server;
 
 use prometheus::{
     HistogramOpts, HistogramVec, IntCounter, IntCounterVec,
     IntGauge, Opts, Registry,
 };
 
+// Re-export for public API
 pub use server::start_metrics_server;
 
 // ============================================================================

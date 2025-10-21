@@ -14,12 +14,12 @@
 //
 // ============================================================================
 
-pub mod value_objects;
-pub mod events;
-pub mod commands;
-pub mod errors;
-pub mod aggregate;
-pub mod command_handler;
+mod value_objects;
+mod events;
+mod commands;
+mod errors;
+mod aggregate;
+mod command_handler;
 
 // Re-export for convenience
 pub use value_objects::*;

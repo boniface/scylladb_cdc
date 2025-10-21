@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::event_sourcing::core::DomainEvent;
+use crate::event_sourcing::DomainEvent;
 use super::value_objects::{Email, PhoneNumber, Address, CustomerStatus, CustomerTier, PaymentMethod};
 
 // ============================================================================

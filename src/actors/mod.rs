@@ -13,13 +13,16 @@
 //
 // ============================================================================
 
-pub mod core;
-pub mod infrastructure;
+// Private module declarations
+mod core;
+mod infrastructure;
 
-// Re-export commonly used types
-pub use core::{HealthStatus, ComponentHealth, HealthCheckable};
-pub use infrastructure::{
-    CoordinatorActor,
+// Re-export only what's needed in the public API
+pub use infrastructure::CoordinatorActor;
+
+// Internal re-exports for use within the crate
+pub(crate) use core::{HealthStatus, ComponentHealth, HealthCheckable};
+pub(crate) use infrastructure::{
     CdcProcessor,
     DlqActor,
     HealthMonitorActor,
