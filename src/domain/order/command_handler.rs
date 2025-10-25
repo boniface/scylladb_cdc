@@ -2,7 +2,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 use anyhow::{Result, bail};
 
-use crate::event_sourcing::{Aggregate, EventEnvelope, EventStore};
+use crate::event_sourcing::{AggregateRoot, EventEnvelope, EventStore};
 
 use super::aggregate::OrderAggregate;
 use super::commands::OrderCommand;

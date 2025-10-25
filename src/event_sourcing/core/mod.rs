@@ -17,5 +17,5 @@ mod aggregate;
 mod event;
 
 // Re-export core types for public API
-pub use aggregate::Aggregate;
+pub use aggregate::AggregateRoot;
 pub use event::{DomainEvent, EventEnvelope, serialize_event, deserialize_event, EventUpcaster};

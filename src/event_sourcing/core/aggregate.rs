@@ -10,20 +10,27 @@ use super::event::EventEnvelope;
 // 1. State is derived from events (not stored directly)
 // 2. Commands are validated before emitting events
 // 3. Events represent facts that have already happened
-// 4. Aggregates enforce business invariants
+// 4. Aggregate Roots enforce business invariants
 // 5. All state changes flow through events
 //
-// This is the GENERIC aggregate trait that works for ANY domain aggregate.
+// DDD Terminology:
+// - Entity: An object with unique identity
+// - Aggregate Root: The entry point entity that defines the aggregate boundary
+// - This trait represents AGGREGATE ROOTS (not just any entity)
 //
 // ============================================================================
 
-/// Generic Aggregate trait - all event-sourced aggregates implement this
+/// Aggregate Root trait - represents the root entity of an aggregate
+///
+/// In DDD, an Aggregate Root is the entry point to a cluster of related entities
+/// and value objects. It enforces invariants and consistency within the aggregate
+/// boundary.
 ///
 /// Type Parameters:
 /// - `Event`: The domain event type for this aggregate
 /// - `Command`: The command type for this aggregate
 /// - `Error`: The error type for business rule violations
-pub trait Aggregate: Sized + Send + Sync {
+pub trait AggregateRoot: Sized + Send + Sync {
     type Event;
     type Command;
     type Error;

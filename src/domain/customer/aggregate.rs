@@ -2,7 +2,7 @@ use uuid::Uuid;
 use std::collections::HashMap;
 use anyhow::Result;
 
-use crate::event_sourcing::{Aggregate, EventEnvelope};
+use crate::event_sourcing::{AggregateRoot, EventEnvelope};
 use super::value_objects::{Email, PhoneNumber, Address, CustomerStatus, CustomerTier, PaymentMethod};
 use super::commands::CustomerCommand;
 use super::events::*;
@@ -50,7 +50,7 @@ impl CustomerAggregate {
     }
 }
 
-impl Aggregate for CustomerAggregate {
+impl AggregateRoot for CustomerAggregate {
     type Event = CustomerEvent;
     type Command = CustomerCommand;
     type Error = CustomerError;

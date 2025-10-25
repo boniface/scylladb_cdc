@@ -3,7 +3,7 @@ use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use anyhow::{Result, bail};
 
-use crate::event_sourcing::{Aggregate, EventEnvelope};
+use crate::event_sourcing::{AggregateRoot, EventEnvelope};
 use super::value_objects::{OrderItem, OrderStatus};
 use super::events::*;
 use super::commands::OrderCommand;
@@ -54,10 +54,10 @@ impl OrderAggregate {
 }
 
 // ============================================================================
-// Aggregate Trait Implementation
+// Aggregate Root Trait Implementation
 // ============================================================================
 
-impl Aggregate for OrderAggregate {
+impl AggregateRoot for OrderAggregate {
     type Event = OrderEvent;
     type Command = OrderCommand;
     type Error = OrderError;

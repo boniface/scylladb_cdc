@@ -5,7 +5,7 @@ use anyhow::{Result, bail};
 use chrono::Utc;
 use std::marker::PhantomData;
 
-use crate::event_sourcing::core::{DomainEvent, EventEnvelope, Aggregate, serialize_event};
+use crate::event_sourcing::core::{DomainEvent, EventEnvelope, AggregateRoot, serialize_event};
 
 // ============================================================================
 // Generic Event Store - Repository for Events
@@ -222,8 +222,8 @@ impl<E: DomainEvent> EventStore<E> {
     /// Load aggregate from events
     pub async fn load_aggregate<A>(&self, aggregate_id: Uuid) -> Result<A>
     where
-        A: Aggregate<Event = E>,
-        <A as Aggregate>::Error: std::fmt::Display,
+        A: AggregateRoot<Event = E>,
+        <A as AggregateRoot>::Error: std::fmt::Display,
     {
         let events = self.load_events(aggregate_id).await?;
 
