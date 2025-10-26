@@ -1,4 +1,6 @@
-use actix::prelude::*;
+use kameo::Actor;
+use kameo::actor::ActorRef;
+use kameo::error::Infallible;
 use scylla::client::session::Session;
 use std::sync::Arc;
 use crate::messaging::RedpandaClient;
@@ -38,12 +40,12 @@ const TABLE: &str = "outbox_messages";
 /// Our custom consumer that processes CDC rows from outbox_messages table
 pub(crate) struct OutboxCDCConsumer {
     redpanda: Arc<RedpandaClient>,
-    dlq_actor: Option<Addr<DlqActor>>,
+    dlq_actor: Option<ActorRef<DlqActor>>,
     retry_config: RetryConfig,
 }
 
 impl OutboxCDCConsumer {
-    pub fn new(redpanda: Arc<RedpandaClient>, dlq_actor: Option<Addr<DlqActor>>) -> Self {
+    pub fn new(redpanda: Arc<RedpandaClient>, dlq_actor: Option<ActorRef<DlqActor>>) -> Self {
         Self {
             redpanda,
             dlq_actor,
@@ -181,7 +183,8 @@ impl Consumer for OutboxCDCConsumer {
 
                         // Send to Dead Letter Queue
                         if let Some(ref dlq) = self.dlq_actor {
-                            dlq.do_send(AddToDlq {
+                            // Fire and forget - use tell
+                            let _ = dlq.tell(AddToDlq {
                                 id: event_id,
                                 aggregate_id,
                                 event_type: event_type.clone(),
@@ -189,7 +192,7 @@ impl Consumer for OutboxCDCConsumer {
                                 error_message: e.to_string(),
                                 failure_count: self.retry_config.max_attempts as i32,
                                 first_failed_at: first_attempt_time,
-                            });
+                            }).send().await;
                         }
 
                         // Don't propagate error - message is in DLQ for manual handling
@@ -209,11 +212,11 @@ impl Consumer for OutboxCDCConsumer {
 /// The scylla-cdc library will create one consumer per VNode group
 pub(crate) struct OutboxConsumerFactory {
     redpanda: Arc<RedpandaClient>,
-    dlq_actor: Option<Addr<DlqActor>>,
+    dlq_actor: Option<ActorRef<DlqActor>>,
 }
 
 impl OutboxConsumerFactory {
-    pub fn new(redpanda: Arc<RedpandaClient>, dlq_actor: Option<Addr<DlqActor>>) -> Self {
+    pub fn new(redpanda: Arc<RedpandaClient>, dlq_actor: Option<ActorRef<DlqActor>>) -> Self {
         Self { redpanda, dlq_actor }
     }
 }
@@ -233,11 +236,11 @@ impl ConsumerFactory for OutboxConsumerFactory {
 pub struct CdcProcessor {
     session: Arc<Session>,
     redpanda: Arc<RedpandaClient>,
-    dlq_actor: Option<Addr<DlqActor>>,
+    dlq_actor: Option<ActorRef<DlqActor>>,
 }
 
 impl CdcProcessor {
-    pub fn new(session: Arc<Session>, redpanda: Arc<RedpandaClient>, dlq_actor: Option<Addr<DlqActor>>) -> Self {
+    pub fn new(session: Arc<Session>, redpanda: Arc<RedpandaClient>, dlq_actor: Option<ActorRef<DlqActor>>) -> Self {
         Self { session, redpanda, dlq_actor }
     }
 
@@ -280,19 +283,26 @@ impl CdcProcessor {
 }
 
 impl Actor for CdcProcessor {
-    type Context = Context<Self>;
+    type Args = Self;
+    type Error = Infallible;
 
-    fn started(&mut self, ctx: &mut Self::Context) {
+    async fn on_start(
+        state: Self::Args,
+        _actor_ref: ActorRef<Self>
+    ) -> Result<Self, Self::Error> {
         tracing::info!("CdcProcessor actor started");
-        let session = self.session.clone();
-        let redpanda = self.redpanda.clone();
-        let dlq_actor = self.dlq_actor.clone();
 
-        ctx.spawn(async move {
+        let session = state.session.clone();
+        let redpanda = state.redpanda.clone();
+        let dlq_actor = state.dlq_actor.clone();
+
+        tokio::spawn(async move {
             let processor = CdcProcessor::new(session, redpanda, dlq_actor);
             if let Err(e) = processor.start_cdc_streaming().await {
                 tracing::error!("Failed to start CDC streaming: {}", e);
             }
-        }.into_actor(self));
+        });
+
+        Ok(state)
     }
 }

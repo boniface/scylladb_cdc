@@ -1,4 +1,4 @@
-use actix::prelude::*;
+use kameo::Actor;
 use scylla::client::session::Session;
 use scylla::client::session_builder::SessionBuilder;
 use std::sync::Arc;
@@ -23,7 +23,7 @@ use domain::customer::{
     Email, PhoneNumber, Address, CustomerTier,
 };
 
-#[actix::main]
+#[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initialize structured logging
     tracing_subscriber::registry()
@@ -70,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
 
     // === 4. Start Coordinator Actor (manages CDC processor, DLQ, health check) ===
     tracing::info!("Starting coordinator actor with supervision");
-    let _coordinator = CoordinatorActor::new(session.clone(), redpanda.clone()).start();
+    let _coordinator = CoordinatorActor::spawn(CoordinatorActor::new(session.clone(), redpanda.clone()));
 
     // === 5. Initialize Event Sourcing Components ===
     tracing::info!("🎯 Initializing Event Sourcing");

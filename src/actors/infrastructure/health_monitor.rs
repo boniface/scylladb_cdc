@@ -1,4 +1,8 @@
-use actix::prelude::*;
+use kameo::Actor;
+use kameo::message::{Context, Message};
+use kameo::actor::ActorRef;
+use kameo::error::Infallible;
+use kameo::reply::{Reply, ReplyError};
 use std::sync::Arc;
 use std::collections::HashMap;
 use chrono::Utc;
@@ -22,16 +26,12 @@ use crate::actors::core::{HealthStatus, ComponentHealth};
 // Messages
 // ============================================================================
 
-#[derive(Message)]
-#[rtype(result = "()")]
 pub struct UpdateHealth {
     pub component: String,
     pub status: HealthStatus,
     pub details: Option<String>,
 }
 
-#[derive(Message)]
-#[rtype(result = "SystemHealth")]
 pub struct GetSystemHealth;
 
 #[derive(Debug, Clone)]
@@ -39,6 +39,25 @@ pub struct SystemHealth {
     pub overall_status: HealthStatus,
     pub components: HashMap<String, ComponentHealth>,
     pub check_time: chrono::DateTime<Utc>,
+}
+
+// Implement Reply for SystemHealth to use it as a message reply type
+impl Reply for SystemHealth {
+    type Ok = Self;
+    type Error = Infallible;
+    type Value = Self;
+
+    fn to_result(self) -> Result<Self, Infallible> {
+        Ok(self)
+    }
+
+    fn into_any_err(self) -> Option<Box<dyn ReplyError>> {
+        None
+    }
+
+    fn into_value(self) -> Self::Value {
+        self
+    }
 }
 
 // ============================================================================
@@ -85,50 +104,59 @@ impl HealthMonitorActor {
 }
 
 impl Actor for HealthMonitorActor {
-    type Context = Context<Self>;
+    type Args = Self;
+    type Error = Infallible;
 
-    fn started(&mut self, ctx: &mut Self::Context) {
+    async fn on_start(
+        state: Self::Args,
+        actor_ref: ActorRef<Self>
+    ) -> Result<Self, Self::Error> {
         tracing::info!("HealthMonitorActor started");
 
-        // Get address before borrowing ctx
-        let addr = ctx.address();
+        // Clone what we need for the periodic task
+        let redpanda = state.redpanda.clone();
+        let actor_ref_clone = actor_ref.clone();
 
         // Schedule periodic health checks
-        ctx.run_interval(
-            std::time::Duration::from_secs(10),
-            move |act, _ctx| {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+            loop {
+                interval.tick().await;
+
                 // Check Redpanda health periodically
-                let redpanda = act.redpanda.clone();
-                let addr = addr.clone();
+                if let Some(ref rp) = redpanda {
+                    let status = match rp.get_circuit_breaker_state().await {
+                        CircuitState::Closed => HealthStatus::Healthy,
+                        CircuitState::HalfOpen => {
+                            HealthStatus::Degraded("Circuit breaker half-open".to_string())
+                        }
+                        CircuitState::Open => {
+                            HealthStatus::Unhealthy("Circuit breaker open".to_string())
+                        }
+                    };
 
-                actix::spawn(async move {
-                    if let Some(rp) = redpanda {
-                        let status = match rp.get_circuit_breaker_state().await {
-                            CircuitState::Closed => HealthStatus::Healthy,
-                            CircuitState::HalfOpen => {
-                                HealthStatus::Degraded("Circuit breaker half-open".to_string())
-                            }
-                            CircuitState::Open => {
-                                HealthStatus::Unhealthy("Circuit breaker open".to_string())
-                            }
-                        };
+                    // Fire and forget - use tell
+                    let _ = actor_ref_clone.tell(UpdateHealth {
+                        component: "redpanda".to_string(),
+                        status,
+                        details: None,
+                    }).send().await;
+                }
+            }
+        });
 
-                        addr.do_send(UpdateHealth {
-                            component: "redpanda".to_string(),
-                            status,
-                            details: None,
-                        });
-                    }
-                });
-            },
-        );
+        Ok(state)
     }
 }
 
-impl Handler<UpdateHealth> for HealthMonitorActor {
-    type Result = ();
+// ============================================================================
+// Message Handlers
+// ============================================================================
 
-    fn handle(&mut self, msg: UpdateHealth, _: &mut Self::Context) {
+impl Message<UpdateHealth> for HealthMonitorActor {
+    type Reply = ();
+
+    async fn handle(&mut self, msg: UpdateHealth, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         let health = ComponentHealth {
             name: msg.component.clone(),
             status: msg.status.clone(),
@@ -146,16 +174,16 @@ impl Handler<UpdateHealth> for HealthMonitorActor {
     }
 }
 
-impl Handler<GetSystemHealth> for HealthMonitorActor {
-    type Result = MessageResult<GetSystemHealth>;
+impl Message<GetSystemHealth> for HealthMonitorActor {
+    type Reply = SystemHealth;
 
-    fn handle(&mut self, _msg: GetSystemHealth, _: &mut Self::Context) -> Self::Result {
+    async fn handle(&mut self, _msg: GetSystemHealth, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         let overall_status = self.compute_overall_status();
 
-        MessageResult(SystemHealth {
+        SystemHealth {
             overall_status,
             components: self.components.clone(),
             check_time: Utc::now(),
-        })
+        }
     }
 }

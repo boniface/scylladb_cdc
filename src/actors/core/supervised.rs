@@ -1,11 +1,10 @@
-use actix::prelude::*;
-
 // ============================================================================
-// Supervised Actor Trait
+// Supervised Actor Metadata
 // ============================================================================
 //
-// Common interface for actors that are managed by a supervisor (Coordinator).
-// Provides lifecycle hooks and metadata for supervision strategies.
+// Metadata structures for supervised actors.
+// Kameo provides built-in supervision via Actor trait hooks:
+// - on_start, on_stop, on_panic, on_link_died
 //
 // ============================================================================
 
@@ -21,34 +20,9 @@ pub enum SupervisionStrategy {
 }
 
 /// Metadata about a supervised actor
+#[derive(Debug, Clone)]
 pub struct ActorMetadata {
     pub name: String,
     pub description: String,
     pub strategy: SupervisionStrategy,
 }
-
-/// Trait for actors that can be supervised by a coordinator
-pub trait SupervisedActor: Actor {
-    /// Get actor metadata
-    fn metadata(&self) -> ActorMetadata;
-
-    /// Called when actor is being supervised
-    fn on_supervised(&mut self, _ctx: &mut Self::Context) {
-        // Default: do nothing
-    }
-
-    /// Called before actor stops
-    fn on_stop(&mut self, _ctx: &mut Self::Context) {
-        // Default: do nothing
-    }
-}
-
-/// Message to request actor metadata
-#[derive(Message)]
-#[rtype(result = "ActorMetadata")]
-pub struct GetMetadata;
-
-/// Message to gracefully stop an actor
-#[derive(Message)]
-#[rtype(result = "()")]
-pub struct GracefulStop;

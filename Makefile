@@ -10,6 +10,7 @@ help:
 	@echo "make schema           - Initialize database schema"
 	@echo "make metrics          - View Prometheus metrics"
 	@echo "make clean            - Stop services and clean up"
+	@echo "make run              - Assume  other services are running"
 
 build:
 	@echo " Building application..."
