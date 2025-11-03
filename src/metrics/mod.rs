@@ -33,6 +33,12 @@ pub struct Metrics {
     pub cdc_events_failed: IntCounterVec,
     pub cdc_processing_duration: HistogramVec,
 
+    // Event Store Metrics
+    pub event_store_append_duration: HistogramVec,
+    pub event_store_load_duration: HistogramVec,
+    pub events_appended_total: IntCounterVec,
+    pub events_loaded_total: IntCounterVec,
+
     // Retry Metrics
     pub retry_attempts_total: IntCounterVec,
     pub retry_success: IntCounterVec,
@@ -76,6 +82,33 @@ impl Metrics {
             &["event_type"],
         )?;
         registry.register(Box::new(cdc_processing_duration.clone()))?;
+
+        // Event Store Metrics
+        let event_store_append_duration = HistogramVec::new(
+            HistogramOpts::new("event_store_append_duration_seconds", "Event store append operation duration")
+                .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]),
+            &["aggregate_type"],
+        )?;
+        registry.register(Box::new(event_store_append_duration.clone()))?;
+
+        let event_store_load_duration = HistogramVec::new(
+            HistogramOpts::new("event_store_load_duration_seconds", "Event store load operation duration")
+                .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]),
+            &["aggregate_type"],
+        )?;
+        registry.register(Box::new(event_store_load_duration.clone()))?;
+
+        let events_appended_total = IntCounterVec::new(
+            Opts::new("events_appended_total", "Total events appended to event store"),
+            &["aggregate_type"],
+        )?;
+        registry.register(Box::new(events_appended_total.clone()))?;
+
+        let events_loaded_total = IntCounterVec::new(
+            Opts::new("events_loaded_total", "Total events loaded from event store"),
+            &["aggregate_type"],
+        )?;
+        registry.register(Box::new(events_loaded_total.clone()))?;
 
         // Retry Metrics
         let retry_attempts_total = IntCounterVec::new(
@@ -146,6 +179,10 @@ impl Metrics {
             cdc_events_processed,
             cdc_events_failed,
             cdc_processing_duration,
+            event_store_append_duration,
+            event_store_load_duration,
+            events_appended_total,
+            events_loaded_total,
             retry_attempts_total,
             retry_success,
             retry_failure,
@@ -202,6 +239,18 @@ impl Metrics {
     /// Helper to record circuit breaker transition
     pub fn record_circuit_breaker_transition(&self, from_state: &str, to_state: &str) {
         self.circuit_breaker_transitions.with_label_values(&[from_state, to_state]).inc();
+    }
+
+    /// Helper to record event store append operation
+    pub fn record_event_store_append(&self, aggregate_type: &str, duration_secs: f64, event_count: usize) {
+        self.event_store_append_duration.with_label_values(&[aggregate_type]).observe(duration_secs);
+        self.events_appended_total.with_label_values(&[aggregate_type]).inc_by(event_count as u64);
+    }
+
+    /// Helper to record event store load operation
+    pub fn record_event_store_load(&self, aggregate_type: &str, duration_secs: f64, event_count: usize) {
+        self.event_store_load_duration.with_label_values(&[aggregate_type]).observe(duration_secs);
+        self.events_loaded_total.with_label_values(&[aggregate_type]).inc_by(event_count as u64);
     }
 }
 

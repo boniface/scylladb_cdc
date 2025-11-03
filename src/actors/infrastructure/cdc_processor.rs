@@ -5,12 +5,14 @@ use scylla::client::session::Session;
 use std::sync::Arc;
 use crate::messaging::RedpandaClient;
 use crate::utils::{retry_with_backoff, RetryConfig, RetryResult};
+use crate::metrics::Metrics;
 use super::{DlqActor, AddToDlq};
 use uuid::Uuid;
 use chrono::Utc;
 use scylla_cdc::consumer::{Consumer, ConsumerFactory, CDCRow, OperationType};
 use scylla_cdc::log_reader::CDCLogReaderBuilder;
 use async_trait::async_trait;
+use std::time::Instant;
 
 // ============================================================================
 // CDC Stream Processor Actor - Uses real ScyllaDB CDC streams
@@ -42,14 +44,16 @@ pub(crate) struct OutboxCDCConsumer {
     redpanda: Arc<RedpandaClient>,
     dlq_actor: Option<ActorRef<DlqActor>>,
     retry_config: RetryConfig,
+    metrics: Arc<Metrics>,
 }
 
 impl OutboxCDCConsumer {
-    pub fn new(redpanda: Arc<RedpandaClient>, dlq_actor: Option<ActorRef<DlqActor>>) -> Self {
+    pub fn new(redpanda: Arc<RedpandaClient>, dlq_actor: Option<ActorRef<DlqActor>>, metrics: Arc<Metrics>) -> Self {
         Self {
             redpanda,
             dlq_actor,
             retry_config: RetryConfig::aggressive(), // More retries for CDC events
+            metrics,
         }
     }
 
@@ -119,38 +123,46 @@ struct OutboxEvent {
 
 #[async_trait]
 impl Consumer for OutboxCDCConsumer {
-    async fn consume_cdc(&mut self, data: CDCRow<'_>) -> anyhow::Result<()> {
-        tracing::debug!(
+    #[tracing::instrument(
+        skip(self, data),
+        fields(
             stream_id = ?data.stream_id,
-            operation = %data.operation,
-            "Received CDC row"
-        );
+            operation = %data.operation
+        )
+    )]
+    async fn consume_cdc(&mut self, data: CDCRow<'_>) -> anyhow::Result<()> {
+        let start_time = Instant::now();
+
+        tracing::debug!("Received CDC row");
 
         // Extract event from CDC row
         match self.extract_event_from_cdc_row(&data)? {
             Some(event) => {
+                let event_type = event.event_type.clone();
+
                 tracing::info!(
                     event_id = %event.id,
-                    event_type = %event.event_type,
+                    event_type = %event_type,
                     aggregate_id = %event.aggregate_id,
                     "📤 Publishing event from CDC stream to Redpanda"
                 );
 
                 // Publish with retry
                 let redpanda = self.redpanda.clone();
-                let event_type = event.event_type.clone();
                 let event_id = event.id;
                 let aggregate_id = event.aggregate_id;
                 let payload = event.payload.clone();
                 let first_attempt_time = Utc::now();
+                let metrics = self.metrics.clone();
 
                 let result = retry_with_backoff(
                     self.retry_config.clone(),
                     |attempt| {
                         let redpanda = redpanda.clone();
-                        let event_type = event_type.clone();
+                        let event_type_inner = event_type.clone();
                         let event_id_str = event_id.to_string();
                         let payload = payload.clone();
+                        let metrics_inner = metrics.clone();
 
                         async move {
                             tracing::debug!(
@@ -159,25 +171,41 @@ impl Consumer for OutboxCDCConsumer {
                                 "Attempting to publish event"
                             );
 
-                            redpanda.publish(&event_type, &event_id_str, &payload).await
+                            // Record retry attempt
+                            metrics_inner.record_retry_attempt("cdc_publish", attempt);
+
+                            redpanda.publish(&event_type_inner, &event_id_str, &payload).await
                         }
                     }
                 ).await;
 
+                let duration = start_time.elapsed().as_secs_f64();
+
                 match result {
                     RetryResult::Success(_) => {
+                        // Record successful CDC event processing with duration
+                        self.metrics.record_cdc_event(&event_type, duration, true);
+                        self.metrics.record_retry_outcome("cdc_publish", true);
+
                         tracing::info!(
                             event_id = %event_id,
                             event_type = %event_type,
+                            duration_ms = duration * 1000.0,
                             "✅ Successfully published event via CDC stream"
                         );
                         Ok(())
                     }
                     RetryResult::Failed(e) | RetryResult::PermanentFailure(e) => {
+                        // Record failed CDC event processing with duration
+                        self.metrics.record_cdc_event(&event_type, duration, false);
+                        self.metrics.record_retry_outcome("cdc_publish", false);
+                        self.metrics.record_dlq_message(&event_type);
+
                         tracing::error!(
                             error = %e,
                             event_id = %event_id,
                             event_type = %event_type,
+                            duration_ms = duration * 1000.0,
                             "❌ Failed to publish event after retries, sending to DLQ"
                         );
 
@@ -213,11 +241,12 @@ impl Consumer for OutboxCDCConsumer {
 pub(crate) struct OutboxConsumerFactory {
     redpanda: Arc<RedpandaClient>,
     dlq_actor: Option<ActorRef<DlqActor>>,
+    metrics: Arc<Metrics>,
 }
 
 impl OutboxConsumerFactory {
-    pub fn new(redpanda: Arc<RedpandaClient>, dlq_actor: Option<ActorRef<DlqActor>>) -> Self {
-        Self { redpanda, dlq_actor }
+    pub fn new(redpanda: Arc<RedpandaClient>, dlq_actor: Option<ActorRef<DlqActor>>, metrics: Arc<Metrics>) -> Self {
+        Self { redpanda, dlq_actor, metrics }
     }
 }
 
@@ -225,7 +254,11 @@ impl OutboxConsumerFactory {
 impl ConsumerFactory for OutboxConsumerFactory {
     async fn new_consumer(&self) -> Box<dyn Consumer> {
         tracing::debug!("Creating new OutboxCDCConsumer instance");
-        Box::new(OutboxCDCConsumer::new(self.redpanda.clone(), self.dlq_actor.clone()))
+        Box::new(OutboxCDCConsumer::new(
+            self.redpanda.clone(),
+            self.dlq_actor.clone(),
+            self.metrics.clone()
+        ))
     }
 }
 
@@ -237,11 +270,17 @@ pub struct CdcProcessor {
     session: Arc<Session>,
     redpanda: Arc<RedpandaClient>,
     dlq_actor: Option<ActorRef<DlqActor>>,
+    metrics: Arc<Metrics>,
 }
 
 impl CdcProcessor {
-    pub fn new(session: Arc<Session>, redpanda: Arc<RedpandaClient>, dlq_actor: Option<ActorRef<DlqActor>>) -> Self {
-        Self { session, redpanda, dlq_actor }
+    pub fn new(
+        session: Arc<Session>,
+        redpanda: Arc<RedpandaClient>,
+        dlq_actor: Option<ActorRef<DlqActor>>,
+        metrics: Arc<Metrics>
+    ) -> Self {
+        Self { session, redpanda, dlq_actor, metrics }
     }
 
     /// Start the CDC log reader
@@ -250,7 +289,11 @@ impl CdcProcessor {
         tracing::info!("🔄 Starting CDC streaming for outbox_messages table");
         tracing::info!("📊 This uses real ScyllaDB CDC streams with retry and DLQ!");
 
-        let factory = Arc::new(OutboxConsumerFactory::new(self.redpanda.clone(), self.dlq_actor.clone()));
+        let factory = Arc::new(OutboxConsumerFactory::new(
+            self.redpanda.clone(),
+            self.dlq_actor.clone(),
+            self.metrics.clone()
+        ));
 
         // Build the CDC log reader
         // It will start reading from "now" and continue forever
@@ -295,9 +338,10 @@ impl Actor for CdcProcessor {
         let session = state.session.clone();
         let redpanda = state.redpanda.clone();
         let dlq_actor = state.dlq_actor.clone();
+        let metrics = state.metrics.clone();
 
         tokio::spawn(async move {
-            let processor = CdcProcessor::new(session, redpanda, dlq_actor);
+            let processor = CdcProcessor::new(session, redpanda, dlq_actor, metrics);
             if let Err(e) = processor.start_cdc_streaming().await {
                 tracing::error!("Failed to start CDC streaming: {}", e);
             }

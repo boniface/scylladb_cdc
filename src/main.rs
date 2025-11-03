@@ -3,6 +3,7 @@ use scylla::client::session::Session;
 use scylla::client::session_builder::SessionBuilder;
 use std::sync::Arc;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tokio::signal;
 
 mod actors;
 mod messaging;
@@ -70,16 +71,21 @@ async fn main() -> anyhow::Result<()> {
 
     // === 4. Start Coordinator Actor (manages CDC processor, DLQ, health check) ===
     tracing::info!("Starting coordinator actor with supervision");
-    let _coordinator = CoordinatorActor::spawn(CoordinatorActor::new(session.clone(), redpanda.clone()));
+    let _coordinator = CoordinatorActor::spawn(CoordinatorActor::new(
+        session.clone(),
+        redpanda.clone(),
+        metrics.clone()
+    ));
 
     // === 5. Initialize Event Sourcing Components ===
     tracing::info!("🎯 Initializing Event Sourcing");
 
-    // Create Order event store (generic EventStore<OrderEvent>)
-    let event_store = Arc::new(EventStore::<OrderEvent>::new(
+    // Create Order event store with metrics (generic EventStore<OrderEvent>)
+    let event_store = Arc::new(EventStore::<OrderEvent>::with_metrics(
         session.clone(),
         "Order",         // aggregate type name
-        "order-events"   // topic name
+        "order-events",  // topic name
+        metrics.clone()  // metrics for observability
     ));
 
     // Create Order command handler
@@ -186,11 +192,12 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("════════════════════════════════════════════════════════════");
     tracing::info!("");
 
-    // Create Customer event store
-    let customer_event_store = Arc::new(EventStore::<CustomerEvent>::new(
+    // Create Customer event store with metrics
+    let customer_event_store = Arc::new(EventStore::<CustomerEvent>::with_metrics(
         session.clone(),
         "Customer",
-        "customer-events"
+        "customer-events",
+        metrics.clone()
     ));
 
     let customer_command_handler = Arc::new(CustomerCommandHandler::new(customer_event_store.clone()));
@@ -258,7 +265,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("");
     tracing::info!("════════════════════════════════════════════════════════════");
-    tracing::info!(" Event Sourcing Demo Complete!");
+    tracing::info!("✅ Event Sourcing Demo Complete!");
     tracing::info!("════════════════════════════════════════════════════════════");
     tracing::info!("");
     tracing::info!("Aggregates Demonstrated:");
@@ -286,8 +293,64 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("                    Projections                    Redpanda");
     tracing::info!("                   (Read Models)                (External Systems)");
     tracing::info!("");
-    tracing::info!(" Metrics available at: http://localhost:9090/metrics");
+    tracing::info!("════════════════════════════════════════════════════════════");
+    tracing::info!("🌐 Application is now running and ready!");
+    tracing::info!("════════════════════════════════════════════════════════════");
     tracing::info!("");
+    tracing::info!("📊 Available Endpoints:");
+    tracing::info!("   Metrics:       http://localhost:9090/metrics");
+    tracing::info!("   Health Check:  http://localhost:9090/health");
+    tracing::info!("");
+    tracing::info!("📈 Quick Metrics Check:");
+    tracing::info!("   curl http://localhost:9090/metrics | grep cdc_processing_duration");
+    tracing::info!("   curl http://localhost:9090/metrics | grep event_store_append");
+    tracing::info!("");
+    tracing::info!("💡 Tips:");
+    tracing::info!("   - Run 'make metrics' to view current metrics");
+    tracing::info!("   - See OBSERVABILITY.md for Prometheus/Grafana setup");
+    tracing::info!("   - Press Ctrl+C to gracefully shutdown");
+    tracing::info!("");
+    tracing::info!("⏳ Waiting for shutdown signal...");
+
+    // Wait for shutdown signal
+    wait_for_shutdown().await;
+
+    tracing::info!("");
+    tracing::info!("🛑 Shutdown signal received, cleaning up...");
+
+    // Give actors time to finish processing
+    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+    tracing::info!("✅ Application stopped gracefully");
 
     Ok(())
+}
+
+/// Wait for shutdown signal (Ctrl+C or SIGTERM)
+async fn wait_for_shutdown() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("Failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            tracing::info!("Received Ctrl+C signal");
+        },
+        _ = terminate => {
+            tracing::info!("Received SIGTERM signal");
+        },
+    }
 }

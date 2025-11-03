@@ -1,6 +1,14 @@
 # Rust
 /target
 Cargo.lock
+
+# Runtime files
+.app.pid
+app.log
+
+# Coverage reports
+/coverage
+tarpaulin-report.html
 **/*.rs.bk
 *.pdb
 

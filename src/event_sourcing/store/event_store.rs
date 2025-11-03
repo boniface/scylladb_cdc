@@ -4,8 +4,10 @@ use uuid::Uuid;
 use anyhow::{Result, bail};
 use chrono::Utc;
 use std::marker::PhantomData;
+use std::time::Instant;
 
 use crate::event_sourcing::core::{DomainEvent, EventEnvelope, AggregateRoot, serialize_event};
+use crate::metrics::Metrics;
 
 // ============================================================================
 // Generic Event Store - Repository for Events
@@ -28,6 +30,7 @@ pub struct EventStore<E: DomainEvent> {
     session: Arc<Session>,
     aggregate_type_name: String,  // e.g., "Order", "Customer", "Product"
     topic_name: String,            // e.g., "order-events", "customer-events"
+    metrics: Option<Arc<Metrics>>,
     _phantom: PhantomData<E>,
 }
 
@@ -37,12 +40,38 @@ impl<E: DomainEvent> EventStore<E> {
             session,
             aggregate_type_name: aggregate_type_name.to_string(),
             topic_name: topic_name.to_string(),
+            metrics: None,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Create EventStore with metrics support
+    pub fn with_metrics(
+        session: Arc<Session>,
+        aggregate_type_name: &str,
+        topic_name: &str,
+        metrics: Arc<Metrics>
+    ) -> Self {
+        Self {
+            session,
+            aggregate_type_name: aggregate_type_name.to_string(),
+            topic_name: topic_name.to_string(),
+            metrics: Some(metrics),
             _phantom: PhantomData,
         }
     }
 
     /// Append events to the event store
     /// Returns the new version number after appending
+    #[tracing::instrument(
+        skip(self, events),
+        fields(
+            aggregate_id = %aggregate_id,
+            aggregate_type = %self.aggregate_type_name,
+            expected_version = expected_version,
+            event_count = events.len()
+        )
+    )]
     pub async fn append_events(
         &self,
         aggregate_id: Uuid,
@@ -50,6 +79,8 @@ impl<E: DomainEvent> EventStore<E> {
         events: Vec<EventEnvelope<E>>,
         publish_to_outbox: bool,
     ) -> Result<i64> {
+        let start_time = Instant::now();
+
         if events.is_empty() {
             bail!("Cannot append empty event list");
         }
@@ -139,11 +170,19 @@ impl<E: DomainEvent> EventStore<E> {
         // Execute batch
         self.session.batch(&batch, values).await?;
 
+        let duration = start_time.elapsed().as_secs_f64();
+
+        // Record metrics
+        if let Some(ref metrics) = self.metrics {
+            metrics.record_event_store_append(&self.aggregate_type_name, duration, events.len());
+        }
+
         tracing::info!(
             aggregate_id = %aggregate_id,
             aggregate_type = %self.aggregate_type_name,
             new_version = new_version,
             event_count = events.len(),
+            duration_ms = duration * 1000.0,
             "✅ Appended events to event store"
         );
 
@@ -151,7 +190,16 @@ impl<E: DomainEvent> EventStore<E> {
     }
 
     /// Load all events for an aggregate
+    #[tracing::instrument(
+        skip(self),
+        fields(
+            aggregate_id = %aggregate_id,
+            aggregate_type = %self.aggregate_type_name
+        )
+    )]
     pub async fn load_events(&self, aggregate_id: Uuid) -> Result<Vec<EventEnvelope<E>>> {
+        let start_time = Instant::now();
+
         let result = self.session
             .query_unpaged(
                 "SELECT aggregate_id, sequence_number, event_id, event_type, event_version,
@@ -195,7 +243,18 @@ impl<E: DomainEvent> EventStore<E> {
             events.push(envelope);
         }
 
-        tracing::debug!("Loaded {} events for aggregate {}", events.len(), aggregate_id);
+        let duration = start_time.elapsed().as_secs_f64();
+
+        // Record metrics
+        if let Some(ref metrics) = self.metrics {
+            metrics.record_event_store_load(&self.aggregate_type_name, duration, events.len());
+        }
+
+        tracing::debug!(
+            event_count = events.len(),
+            duration_ms = duration * 1000.0,
+            "Loaded events for aggregate"
+        );
         Ok(events)
     }
 

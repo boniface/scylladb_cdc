@@ -6,6 +6,7 @@ use scylla::client::session::Session;
 use std::sync::Arc;
 use futures_util::task::SpawnExt;
 use crate::messaging::RedpandaClient;
+use crate::metrics::Metrics;
 use crate::actors::core::HealthStatus;
 use super::{CdcProcessor, DlqActor, HealthMonitorActor, UpdateHealth, GetSystemHealth};
 
@@ -31,16 +32,18 @@ use super::{CdcProcessor, DlqActor, HealthMonitorActor, UpdateHealth, GetSystemH
 pub struct CoordinatorActor {
     session: Arc<Session>,
     redpanda: Arc<RedpandaClient>,
+    metrics: Arc<Metrics>,
     cdc_processor: Option<ActorRef<CdcProcessor>>,
     health_monitor: Option<ActorRef<HealthMonitorActor>>,
     dlq_actor: Option<ActorRef<DlqActor>>,
 }
 
 impl CoordinatorActor {
-    pub fn new(session: Arc<Session>, redpanda: Arc<RedpandaClient>) -> Self {
+    pub fn new(session: Arc<Session>, redpanda: Arc<RedpandaClient>, metrics: Arc<Metrics>) -> Self {
         Self {
             session,
             redpanda,
+            metrics,
             cdc_processor: None,
             health_monitor: None,
             dlq_actor: None,
@@ -73,11 +76,12 @@ impl Actor for CoordinatorActor {
             details: Some("DLQ actor started".to_string()),
         }).send().await;
 
-        // Start CDC stream processor with DLQ support
+        // Start CDC stream processor with DLQ support and metrics
         let cdc_processor = CdcProcessor::spawn(CdcProcessor::new(
             state.session.clone(),
             state.redpanda.clone(),
             Some(dlq_actor.clone()),
+            state.metrics.clone(),
         ));
         state.cdc_processor = Some(cdc_processor.clone());
 
